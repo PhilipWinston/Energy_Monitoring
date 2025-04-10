@@ -14,9 +14,6 @@ from tensorflow.keras.models import load_model
 import json
 import os
 import requests
-
-
-
 # Set page configuration
 st.set_page_config(
     page_title="Realtime Energy Monitoring",
@@ -164,22 +161,16 @@ def create_monitoring_graphs(df):
 @st.cache_resource
 def load_lstm_model():
     try:
-        # URL of the raw model file on GitHub
         model_url = "https://github.com/PhilipWinston/Energy_Monitoring/releases/download/v1.0.0/lstm_energy_forecast_model.h5"
-        
-        # Temporary path to save the model
         model_path = "/tmp/lstm_energy_forecast_model.h5"
 
-        # Download the model
         response = requests.get(model_url)
-        response.raise_for_status()  # Raise error for bad status codes
+        response.raise_for_status()
 
-        # Write the model to disk
         with open(model_path, "wb") as f:
             f.write(response.content)
 
-        # Load the model
-        model = load_model(model_path)
+        model = load_model(model_path, compile=False)
         return model
     except Exception as e:
         st.warning(f"Could not load the LSTM model from GitHub: {e}")

@@ -25,7 +25,7 @@ st_autorefresh(interval=60000, limit=None, key="1min_refresh")
 
 # Also show a manual "Refresh Now" button.
 if st.button("Refresh Now"):
-    st.experimental_rerun()
+    st.rerun()
 
 # -------------------------------
 # 2. Load Data from Google Sheets Using st.secrets

@@ -1,421 +1,347 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objs as go
-import numpy as np
-from datetime import datetime, timedelta
-import time
-import tensorflow as tf
-from sklearn.preprocessing import MinMaxScaler
 import gspread
 from google.oauth2.service_account import Credentials
+from datetime import datetime, date, timedelta
+import holidays
+import time
+from sklearn.preprocessing import MinMaxScaler
+import tensorflow as tf
+from tensorflow.keras.models import load_model
 import json
 import os
-from tensorflow.keras.models import load_model
 
-# Page configuration
+# Set page configuration
 st.set_page_config(
     page_title="Realtime Energy Monitoring",
     page_icon="⚡",
     layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Custom CSS
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: 700;
-        color: #0066cc;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-    .sub-header {
-        font-size: 1.5rem;
-        font-weight: 600;
-        color: #333;
-        margin-top: 1rem;
-        margin-bottom: 0.5rem;
-    }
-    .card {
-        background-color: #f8f9fa;
-        border-radius: 10px;
-        padding: 1.5rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        margin-bottom: 1rem;
-    }
-    .metric-big {
-        font-size: 2.5rem;
-        font-weight: 700;
-        color: #0066cc;
-    }
-    .metric-label {
-        font-size: 1rem;
-        color: #666;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Title and description
+st.title("⚡ Realtime Energy Monitoring Dashboard")
+st.markdown("This dashboard provides realtime monitoring of voltage, current, and energy consumption.")
 
-# Helper functions for Google Sheets
+# Create placeholder for connection status
+connection_status = st.empty()
+
+# Function to authenticate with Google Sheets
 @st.cache_resource
-def get_google_sheet_credentials():
-    """Get Google Sheets credentials."""
-    # For Streamlit Cloud, use secrets management
+def get_google_client():
+    # For Streamlit Cloud, we'll use secrets management
+    # Create a dictionary from secrets
     if os.path.exists(".streamlit/secrets.toml"):
-        creds_info = st.secrets["gcp_service_account"]
-        creds_dict = {
-            "type": creds_info["type"],
-            "project_id": creds_info["project_id"],
-            "private_key_id": creds_info["private_key_id"],
-            "private_key": creds_info["private_key"].replace('\\n', '\n'),
-            "client_email": creds_info["client_email"],
-            "client_id": creds_info["client_id"],
-            "auth_uri": creds_info["auth_uri"],
-            "token_uri": creds_info["token_uri"],
-            "auth_provider_x509_cert_url": creds_info["auth_provider_x509_cert_url"],
-            "client_x509_cert_url": creds_info["client_x509_cert_url"]
+        # Local development with secrets.toml
+        credentials = st.secrets["google_credentials"]
+        # Convert to a service account info dictionary
+        service_account_info = {
+            "type": credentials["type"],
+            "project_id": credentials["project_id"],
+            "private_key_id": credentials["private_key_id"],
+            "private_key": credentials["private_key"].replace('\\n', '\n'),
+            "client_email": credentials["client_email"],
+            "client_id": credentials["client_id"],
+            "auth_uri": credentials["auth_uri"],
+            "token_uri": credentials["token_uri"],
+            "auth_provider_x509_cert_url": credentials["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": credentials["client_x509_cert_url"],
         }
-        return creds_dict
     else:
-        # For local development, look for credentials file
-        try:
-            with open('credentials.json', 'r') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            st.error("Google Sheets credentials not found. Please set up your credentials.")
-            return None
-
-def load_data_from_sheets(sheet_id):
-    """Load data from Google Sheets."""
-    creds_dict = get_google_sheet_credentials()
-    
-    if not creds_dict:
-        # Return sample data if credentials aren't available
-        return generate_sample_data()
+        # For Streamlit Cloud deployment
+        credentials_json = st.secrets["google_credentials"]
+        service_account_info = json.loads(credentials_json)
     
     SCOPES = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
     
-    # Create credentials from dictionary
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    creds = Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
     client = gspread.authorize(creds)
     
-    try:
-        # Try to open the specified sheet
-        spreadsheet = client.open_by_key(sheet_id)
-        sheet = spreadsheet.worksheet("cleaned_data")  # Use the cleaned data sheet
-        data = sheet.get_all_records()
-        df = pd.DataFrame(data)
-        
-        # Convert DATE / TIME to datetime
-        df['DATE / TIME'] = pd.to_datetime(df['DATE / TIME'])
-        
-        # Convert numeric columns
-        numeric_cols = ['VOLTAGE', 'CURRENT', 'POWER', 'ENERGY (kWh)']
-        for col in numeric_cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-        return df
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        return generate_sample_data()
+    return client
 
-def generate_sample_data():
-    """Generate sample data for testing when Google Sheets is not available."""
-    now = datetime.now()
-    dates = [now - timedelta(minutes=i*10) for i in range(100, 0, -1)]
+# Function to load data
+def load_data(client):
+    SHEET_ID = st.secrets["sheet_id"]
+    sheet = client.open_by_key(SHEET_ID).sheet1
+    data = sheet.get_all_records()
+    df = pd.DataFrame(data)
     
-    # Create sample data with some realistic patterns
-    df = pd.DataFrame({
-        'DATE / TIME': dates,
-        'VOLTAGE': [220 + np.random.normal(0, 5) for _ in range(100)],
-        'CURRENT': [5 + 2*np.sin(i/10) + np.random.normal(0, 0.5) for i in range(100)],
-        'POWER': [1100 + 200*np.sin(i/10) + np.random.normal(0, 50) for i in range(100)],
-        'ENERGY (kWh)': [0.01 * i + np.random.normal(0, 0.005) for i in range(100)]
-    })
+    # Clean and process data
+    df_cleaned = df.copy()
     
-    # Calculate cumulative energy
-    df['CUMULATIVE_ENERGY'] = df['ENERGY (kWh)'].cumsum()
+    # Handle datetime conversion
+    if "DATE" in df_cleaned.columns and "TIME" in df_cleaned.columns:
+        # Option 1: Separate DATE and TIME columns
+        df_cleaned["DATETIME"] = pd.to_datetime(df_cleaned["DATE"] + " " + df_cleaned["TIME"], errors='coerce')
+        df_cleaned.drop(columns=["DATE", "TIME"], inplace=True)
+    elif "DATE / TIME" in df_cleaned.columns:
+        # Option 2: Combined DATE / TIME column
+        df_cleaned['DATETIME'] = pd.to_datetime(df_cleaned['DATE / TIME'], errors='coerce')
+        df_cleaned.drop(columns=['DATE / TIME'], inplace=True)
     
-    return df
+    # Convert numeric columns
+    numeric_cols = ['VOLTAGE', 'CURRENT', 'POWER', 'ENERGY (kWh)']
+    for col in numeric_cols:
+        if col in df_cleaned.columns:
+            df_cleaned[col] = pd.to_numeric(df_cleaned[col], errors='coerce')
+    
+    # Drop rows with missing values in important columns
+    df_cleaned = df_cleaned.dropna(subset=['DATETIME'] + [col for col in numeric_cols if col in df_cleaned.columns])
+    
+    # Sort by datetime
+    df_cleaned = df_cleaned.sort_values('DATETIME')
+    
+    return df_cleaned
 
-# Load and prepare model
+# Function to create realtime monitoring graphs
+def create_monitoring_graphs(df):
+    # Create 3 columns for the graphs
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if 'VOLTAGE' in df.columns:
+            fig1 = px.line(
+                df.iloc[-100:], 
+                x="DATETIME", 
+                y="VOLTAGE", 
+                title="Voltage (Last 100 readings)", 
+                labels={"VOLTAGE": "Voltage (V)", "DATETIME": "Time"}
+            )
+            fig1.update_layout(height=400)
+            st.plotly_chart(fig1, use_container_width=True)
+    
+    with col2:
+        if 'CURRENT' in df.columns:
+            fig2 = px.line(
+                df.iloc[-100:], 
+                x="DATETIME", 
+                y="CURRENT", 
+                title="Current (Last 100 readings)", 
+                labels={"CURRENT": "Current (A)", "DATETIME": "Time"}
+            )
+            fig2.update_layout(height=400)
+            st.plotly_chart(fig2, use_container_width=True)
+    
+    with col3:
+        if 'POWER' in df.columns:
+            fig3 = px.line(
+                df.iloc[-100:], 
+                x="DATETIME", 
+                y="POWER", 
+                title="Power (Last 100 readings)", 
+                labels={"POWER": "Power (W)", "DATETIME": "Time"}
+            )
+            fig3.update_layout(height=400)
+            st.plotly_chart(fig3, use_container_width=True)
+    
+    # Energy graph in a full width column
+    if 'ENERGY (kWh)' in df.columns:
+        # Calculate cumulative energy
+        df_energy = df.copy()
+        df_energy = df_energy.sort_values('DATETIME')
+        df_energy["CUMULATIVE_ENERGY"] = df_energy["ENERGY (kWh)"].cumsum()
+        
+        fig4 = px.line(
+            df_energy.iloc[-500:], 
+            x="DATETIME", 
+            y="CUMULATIVE_ENERGY", 
+            title="Cumulative Energy Consumption (Last 500 readings)", 
+            labels={"CUMULATIVE_ENERGY": "Energy (kWh)", "DATETIME": "Time"}
+        )
+        fig4.update_layout(height=400)
+        st.plotly_chart(fig4, use_container_width=True)
+
+# Function to load the LSTM model
 @st.cache_resource
 def load_lstm_model():
-    """Load the pre-trained LSTM model."""
     try:
+        # Try to load the model from the local file
         model = load_model("lstm_energy_forecast_model.h5")
         return model
     except:
-        st.warning("Pre-trained model not found. Using a mock model for demonstration.")
-        # Create a simple mock model for demonstration
-        mock_model = tf.keras.Sequential([
-            tf.keras.layers.Input(shape=(10, 1)),
-            tf.keras.layers.LSTM(64, return_sequences=True),
-            tf.keras.layers.LSTM(32),
-            tf.keras.layers.Dense(1)
-        ])
-        mock_model.compile(optimizer='adam', loss='mse')
-        return mock_model
+        st.warning("Could not load the LSTM model. Time series forecasting will not be available.")
+        return None
 
-def predict_energy(df, model, time_steps=10):
-    """Make energy consumption predictions using the LSTM model."""
-    if len(df) < time_steps:
+# Function to prepare data for LSTM prediction
+def prepare_data_for_lstm(df, time_steps=10):
+    if 'ENERGY (kWh)' not in df.columns or len(df) < time_steps:
         return None, None
     
-    # Prepare data for prediction
+    # Get the energy data
     energy_data = df['ENERGY (kWh)'].values
     
-    # Normalize the data
+    # Normalize data
     scaler = MinMaxScaler()
-    energy_scaled = scaler.fit_transform(energy_data.reshape(-1, 1))
+    energy_data_scaled = scaler.fit_transform(energy_data.reshape(-1, 1))
     
-    # Create the input sequence
-    X_input = energy_scaled[-time_steps:].reshape(1, time_steps, 1)
+    # Get the last time_steps values for prediction
+    X = energy_data_scaled[-time_steps:].reshape(1, time_steps, 1)
+    
+    return X, scaler
+
+# Function to make predictions with LSTM model
+def predict_with_lstm(model, df):
+    if model is None or 'ENERGY (kWh)' not in df.columns:
+        st.warning("LSTM model or energy data is not available for prediction.")
+        return
+    
+    st.subheader("Energy Consumption Time Series Analysis")
+    
+    # Prepare data for prediction
+    time_steps = 10
+    X, scaler = prepare_data_for_lstm(df, time_steps)
+    
+    if X is None:
+        st.warning("Not enough data points for prediction.")
+        return
     
     # Make prediction
-    prediction_scaled = model.predict(X_input)
+    prediction_scaled = model.predict(X)
     prediction = scaler.inverse_transform(prediction_scaled)
     
-    # Generate future timestamps for predictions
-    last_date = df['DATE / TIME'].iloc[-1]
-    future_dates = [last_date + timedelta(minutes=(i+1)*10) for i in range(10)]
+    # Get the last known datetime and add forecast points
+    last_datetime = df['DATETIME'].iloc[-1]
+    future_datetimes = [last_datetime + timedelta(minutes=10*i) for i in range(1, 25)]
     
-    # Create future values (simple forecast extending the last few points)
-    last_values = energy_data[-5:]
-    slope = (last_values[-1] - last_values[0]) / 4
-    future_values = [energy_data[-1] + slope * (i+1) for i in range(10)]
+    # Create forecast for the next 24 steps (4 hours if data is 10-min intervals)
+    X_future = X.copy()
+    future_predictions = []
     
-    # Create a combined DataFrame
-    historical_df = pd.DataFrame({
-        'DATE / TIME': df['DATE / TIME'].values,
-        'ENERGY (kWh)': energy_data,
-        'Type': 'Historical'
+    for _ in range(24):
+        # Get prediction for next step
+        next_pred = model.predict(X_future)
+        future_predictions.append(next_pred[0, 0])
+        
+        # Update X_future by dropping the first value and adding the prediction
+        X_future = np.append(X_future[:, 1:, :], [[next_pred[0, 0]]], axis=1)
+    
+    # Inverse transform the predictions
+    future_predictions = scaler.inverse_transform(np.array(future_predictions).reshape(-1, 1))
+    
+    # Create a dataframe for plotting
+    historical_df = df.iloc[-100:].copy()
+    future_df = pd.DataFrame({
+        'DATETIME': future_datetimes,
+        'ENERGY (kWh)': future_predictions.flatten()
     })
     
-    forecast_df = pd.DataFrame({
-        'DATE / TIME': future_dates,
-        'ENERGY (kWh)': future_values,
-        'Type': 'Forecast'
-    })
+    # Create the plot
+    fig = go.Figure()
     
-    combined_df = pd.concat([historical_df, forecast_df])
+    # Add historical data
+    fig.add_trace(go.Scatter(
+        x=historical_df['DATETIME'], 
+        y=historical_df['ENERGY (kWh)'],
+        mode='lines',
+        name='Historical Data',
+        line=dict(color='blue')
+    ))
     
-    return combined_df, prediction[0][0]
+    # Add forecast data
+    fig.add_trace(go.Scatter(
+        x=future_df['DATETIME'], 
+        y=future_df['ENERGY (kWh)'],
+        mode='lines',
+        name='Forecast (Next 4 hours)',
+        line=dict(color='red', dash='dash')
+    ))
+    
+    fig.update_layout(
+        title="Energy Consumption Forecast",
+        xaxis_title="Time",
+        yaxis_title="Energy (kWh)",
+        height=500
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Display metrics
+    st.subheader("Energy Consumption Metrics")
+    col1, col2, col3 = st.columns(3)
+    
+    # Current hour consumption
+    with col1:
+        current_hour = df[df['DATETIME'] >= (df['DATETIME'].max() - timedelta(hours=1))]
+        current_hour_consumption = current_hour['ENERGY (kWh)'].sum()
+        st.metric("Last Hour Consumption", f"{current_hour_consumption:.2f} kWh")
+    
+    # Current day consumption
+    with col2:
+        current_day = df[df['DATETIME'].dt.date == df['DATETIME'].max().date()]
+        current_day_consumption = current_day['ENERGY (kWh)'].sum()
+        st.metric("Today's Consumption", f"{current_day_consumption:.2f} kWh")
+    
+    # Predicted consumption
+    with col3:
+        predicted_consumption = future_predictions.sum()
+        st.metric("Predicted Next 4 Hours", f"{predicted_consumption[0]:.2f} kWh")
 
-# Main app
+# Main function to run the app
 def main():
-    # Main title
-    st.markdown('<div class="main-header">Real-time Energy Monitoring System</div>', unsafe_allow_html=True)
+    # Load LSTM model
+    model = load_lstm_model()
     
-    # Sheet ID from the original code
-    SHEET_ID = "19A2rlYT-Whb24UFcLGDn0ngDCBg8WAXR8N1PDl9F0LQ"
-    
-    # Initialize session state for periodic updates
+    # Initialize session state for auto-refresh
     if 'last_update' not in st.session_state:
-        st.session_state.last_update = datetime.now() - timedelta(minutes=10)  # Force initial update
+        st.session_state.last_update = datetime.now()
         st.session_state.update_count = 0
     
-    # Check if it's time for an update (every 10 minutes)
-    current_time = datetime.now()
-    time_diff = (current_time - st.session_state.last_update).total_seconds() / 60
+    # Sidebar for controls
+    st.sidebar.title("Controls")
+    auto_refresh = st.sidebar.checkbox("Auto-refresh every 10 minutes", value=True)
     
-    # Placeholder for refresh button and last update info
-    refresh_col, update_col = st.columns([1, 3])
+    if st.sidebar.button("Refresh Now"):
+        st.session_state.last_update = datetime.now()
+        st.session_state.update_count += 1
+        st.rerun()  # Use st.rerun() instead of st.experimental_rerun()
     
-    with refresh_col:
-        if st.button("Refresh Data"):
-            st.session_state.last_update = current_time
-            st.session_state.update_count += 1
-            st.experimental_rerun()
-    
-    with update_col:
-        st.markdown(f"**Last updated:** {st.session_state.last_update.strftime('%Y-%m-%d %H:%M:%S')}")
-        if time_diff < 10:
-            st.markdown(f"Next update in: **{int(10 - time_diff)} minutes**")
+    # Show last refresh time
+    st.sidebar.write(f"Last refreshed: {st.session_state.last_update.strftime('%Y-%m-%d %H:%M:%S')}")
+    st.sidebar.write(f"Total refreshes: {st.session_state.update_count}")
     
     # Auto-refresh logic
-    if time_diff >= 10:
-        st.session_state.last_update = current_time
-        st.session_state.update_count += 1
-        st.experimental_rerun()
+    if auto_refresh:
+        current_time = datetime.now()
+        time_diff = (current_time - st.session_state.last_update).total_seconds() / 60
+        minutes_to_refresh = max(0, 10 - time_diff)
+        
+        st.sidebar.write(f"Next refresh in: {int(minutes_to_refresh)} minutes")
+        
+        if time_diff >= 10:
+            st.session_state.last_update = current_time
+            st.session_state.update_count += 1
+            st.rerun()  # Use st.rerun() instead of st.experimental_rerun()
     
     # Load data
     with st.spinner("Loading energy monitoring data..."):
-        df = load_data_from_sheets(SHEET_ID)
-    
-    if df is None or df.empty:
-        st.error("No data available. Please check your data source.")
-        return
-
-    # Current metrics row
-    st.markdown('<div class="sub-header">Current Readings</div>', unsafe_allow_html=True)
-    
-    # Get latest values
-    latest = df.iloc[-1]
-    
-    metric1, metric2, metric3, metric4 = st.columns(4)
-    
-    with metric1:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="metric-label">Voltage</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="metric-big">{latest["VOLTAGE"]:.1f} V</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with metric2:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="metric-label">Current</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="metric-big">{latest["CURRENT"]:.2f} A</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with metric3:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="metric-label">Power</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="metric-big">{latest["POWER"]:.1f} W</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with metric4:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="metric-label">Energy Today</div>', unsafe_allow_html=True)
+        try:
+            # Get Google client and load data
+            connection_status.info("Connecting to Google Sheets...")
+            client = get_google_client()
+            df = load_data(client)
+            connection_status.success("Connected to Google Sheets successfully!")
+            
+            # Display summary info
+            st.sidebar.subheader("Data Summary")
+            st.sidebar.write(f"Total records: {len(df)}")
+            st.sidebar.write(f"Date range: {df['DATETIME'].min().date()} to {df['DATETIME'].max().date()}")
+            
+            # Create monitoring graphs
+            create_monitoring_graphs(df)
+            
+            # Make predictions with LSTM model
+            predict_with_lstm(model, df)
         
-        # Calculate energy for today
-        today = pd.Timestamp.now().floor('D')
-        today_energy = df[df['DATE / TIME'].dt.date == today.date()]['ENERGY (kWh)'].sum()
-        
-        st.markdown(f'<div class="metric-big">{today_energy:.2f} kWh</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Real-time monitoring charts
-    st.markdown('<div class="sub-header">Real-time Monitoring</div>', unsafe_allow_html=True)
-    
-    # Filter for the last 24 hours of data for the real-time view
-    last_24h = datetime.now() - timedelta(hours=24)
-    recent_df = df[df['DATE / TIME'] > last_24h]
-    
-    if len(recent_df) == 0:
-        recent_df = df.tail(100)  # Fallback if no recent data
-    
-    # Create tabs for different visualizations
-    tab1, tab2, tab3 = st.tabs(["Voltage", "Current", "Power"])
-    
-    with tab1:
-        fig_voltage = px.line(
-            recent_df, 
-            x="DATE / TIME", 
-            y="VOLTAGE", 
-            title="Voltage Over Time",
-            labels={"VOLTAGE": "Voltage (V)", "DATE / TIME": "Time"}
-        )
-        fig_voltage.update_layout(height=400)
-        st.plotly_chart(fig_voltage, use_container_width=True)
-    
-    with tab2:
-        fig_current = px.line(
-            recent_df, 
-            x="DATE / TIME", 
-            y="CURRENT", 
-            title="Current Over Time",
-            labels={"CURRENT": "Current (A)", "DATE / TIME": "Time"}
-        )
-        fig_current.update_layout(height=400)
-        st.plotly_chart(fig_current, use_container_width=True)
-    
-    with tab3:
-        fig_power = px.line(
-            recent_df, 
-            x="DATE / TIME", 
-            y="POWER", 
-            title="Power Consumption Over Time",
-            labels={"POWER": "Power (W)", "DATE / TIME": "Time"}
-        )
-        fig_power.update_layout(height=400)
-        st.plotly_chart(fig_power, use_container_width=True)
-    
-    # Energy consumption analysis
-    st.markdown('<div class="sub-header">Energy Consumption Analysis</div>', unsafe_allow_html=True)
-    
-    # Calculate cumulative energy if it doesn't exist
-    if 'CUMULATIVE_ENERGY' not in df.columns:
-        df['CUMULATIVE_ENERGY'] = df['ENERGY (kWh)'].cumsum()
-    
-    # Energy consumption chart
-    fig_energy = px.line(
-        df, 
-        x="DATE / TIME", 
-        y="CUMULATIVE_ENERGY", 
-        title="Cumulative Energy Consumption",
-        labels={"CUMULATIVE_ENERGY": "Energy (kWh)", "DATE / TIME": "Time"}
-    )
-    fig_energy.update_layout(height=400)
-    st.plotly_chart(fig_energy, use_container_width=True)
-    
-    # Time Series Prediction
-    st.markdown('<div class="sub-header">Time Series Analysis & Prediction</div>', unsafe_allow_html=True)
-    
-    with st.spinner("Loading prediction model..."):
-        model = load_lstm_model()
-    
-    # Make predictions
-    prediction_df, next_value = predict_energy(df, model)
-    
-    if prediction_df is not None:
-        # Create forecast visualization
-        historical = prediction_df[prediction_df['Type'] == 'Historical'].tail(50)
-        forecast = prediction_df[prediction_df['Type'] == 'Forecast']
-        
-        fig_forecast = go.Figure()
-        
-        # Add historical data
-        fig_forecast.add_trace(go.Scatter(
-            x=historical['DATE / TIME'],
-            y=historical['ENERGY (kWh)'],
-            name='Historical',
-            line=dict(color='blue', width=2)
-        ))
-        
-        # Add forecast data
-        fig_forecast.add_trace(go.Scatter(
-            x=forecast['DATE / TIME'],
-            y=forecast['ENERGY (kWh)'],
-            name='Forecast (Next 10 minutes)',
-            line=dict(color='red', width=2, dash='dash')
-        ))
-        
-        fig_forecast.update_layout(
-            title="Energy Consumption Forecast",
-            xaxis_title="Time",
-            yaxis_title="Energy (kWh)",
-            legend=dict(x=0, y=1),
-            height=500
-        )
-        
-        st.plotly_chart(fig_forecast, use_container_width=True)
-        
-        # Prediction insights
-        st.markdown(f"**Predicted energy consumption for next interval:** {next_value:.4f} kWh")
-        
-        # Daily summary
-        st.markdown('<div class="sub-header">Daily Energy Summary</div>', unsafe_allow_html=True)
-        
-        # Group by day and calculate daily totals
-        df['Date'] = df['DATE / TIME'].dt.date
-        daily_energy = df.groupby('Date')['ENERGY (kWh)'].sum().reset_index()
-        daily_energy = daily_energy.tail(14)  # Last two weeks
-        
-        fig_daily = px.bar(
-            daily_energy,
-            x='Date',
-            y='ENERGY (kWh)',
-            title="Daily Energy Consumption (Last 14 Days)",
-            labels={"ENERGY (kWh)": "Energy (kWh)", "Date": "Date"}
-        )
-        fig_daily.update_layout(height=400)
-        st.plotly_chart(fig_daily, use_container_width=True)
-    else:
-        st.warning("Not enough data for time series prediction")
+        except Exception as e:
+            connection_status.error(f"Error connecting to data source: {str(e)}")
+            st.error(f"An error occurred: {str(e)}")
+            st.write("Please check your connection and credentials.")
 
 if __name__ == "__main__":
     main()

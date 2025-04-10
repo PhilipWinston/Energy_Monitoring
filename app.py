@@ -14,7 +14,7 @@ st.set_page_config(page_title="⚡ Real-Time Energy Monitoring", layout="wide")
 # ----------------------------
 # Google Sheets authentication
 credentials = service_account.Credentials.from_service_account_info(
-    st.secrets["gcp_service_account"],
+    st.secrets["google_credentials"],
     scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 )
 gc = gspread.authorize(credentials)

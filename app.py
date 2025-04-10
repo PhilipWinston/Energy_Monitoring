@@ -95,18 +95,18 @@ with col2:
 
 with col3:
     fig_energy = px.bar(
-    df_raw,
-    x="DATETIME",
-    y="ENERGY (kWh)",
-    title="Energy Consumption Over Time (Column Chart)",
-    labels={"ENERGY (kWh)": "Energy (kWh)"},
-    color_discrete_sequence=["#00CC96"]  # Optional: a nice green tone
-)
-fig_energy.update_layout(
-    bargap=0.2,
-    xaxis_title="Time",
-    yaxis_title="Energy (kWh)",
-    template="plotly_white"
+        df_raw,
+        x="DATETIME",
+        y="ENERGY (kWh)",
+        title="Energy Consumption Over Time (Column Chart)",
+        labels={"ENERGY (kWh)": "Energy (kWh)"},
+        color_discrete_sequence=["#00CC96"]  # Optional: a nice green tone
+    )
+    fig_energy.update_layout(
+        bargap=0.2,
+        xaxis_title="Time",
+        yaxis_title="Energy (kWh)",
+        template="plotly_white"
 )
 
 # -------------------------------

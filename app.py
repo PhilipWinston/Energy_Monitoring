@@ -165,7 +165,7 @@ def create_monitoring_graphs(df):
 def load_lstm_model():
     try:
         # URL of the raw model file on GitHub
-        model_url = "https://github.com/PhilipWinston/Energy_Monitoring/blob/main/lstm_energy_forecast_model.h5"
+        model_url = "https://github.com/PhilipWinston/Energy_Monitoring/releases/download/v1.0.0/lstm_energy_forecast_model.h5"
         
         # Temporary path to save the model
         model_path = "/tmp/lstm_energy_forecast_model.h5"

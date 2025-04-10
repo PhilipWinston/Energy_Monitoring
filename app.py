@@ -12,7 +12,7 @@ from tensorflow.keras.models import load_model
 import holidays
 
 # Optional: if using auto-refresh, ensure streamlit-autorefresh is installed.
-from streamlit_autorefresh import st_autorefresh
+# from streamlit_autorefresh import st_autorefresh
 
 # -------------------------------
 # 1. Streamlit Configuration & Optional Auto-refresh
@@ -21,7 +21,7 @@ st.set_page_config(page_title="Realtime Monitoring")
 st.title("Realtime Monitoring")
 
 # Uncomment the next line if you wish to auto-refresh every 10 minutes (600000 ms)
-st_autorefresh(interval=600000, limit=None, key="10min_refresh")
+# st_autorefresh(interval=600000, limit=None, key="10min_refresh")
 
 # -------------------------------
 # 2. Load Data from Google Sheets Using st.secrets
@@ -104,7 +104,7 @@ else:
         return OriginalLSTM(*args, **kwargs)
     
     # ---- Define and register a custom mse function ----
-    @tf.keras.saving.register_keras_serializable()
+    @tf.keras.utils.register_keras_serializable()
     def mse(y_true, y_pred):
         return tf.reduce_mean(tf.square(y_pred - y_true))
     

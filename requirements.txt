@@ -1,10 +1,10 @@
 streamlit
-pandas
-numpy
+streamlit-autorefresh
 gspread
 google-auth
+pandas
+numpy
 plotly
-scikit-learn
 tensorflow
-streamlit-autorefresh
+scikit-learn
 holidays

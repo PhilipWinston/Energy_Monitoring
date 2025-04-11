@@ -10,27 +10,29 @@ from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
 from tensorflow.keras.models import load_model
 import holidays
-
-# Optional auto-refresh
 from streamlit_autorefresh import st_autorefresh
 
 # -------------------------------
-# 1. Streamlit Configuration & Auto-refresh
+# 🔧 Streamlit Page Setup & Refresh
 # -------------------------------
-st.set_page_config(page_title="Realtime Monitoring")
-st.title("Realtime Monitoring")
+st.set_page_config(page_title="⚡ Realtime Energy Monitoring", layout="wide")
+st.title("⚡ Realtime Energy Monitoring Dashboard")
 
-# Auto-refresh every 1 minute (60000 ms)
+# Refresh setup
 st_autorefresh(interval=60000, limit=None, key="1min_refresh")
+col1, col2 = st.columns([1, 3])
+with col1:
+    if st.button("🔁 Refresh Now"):
+        st.rerun()
+with col2:
+    st.markdown(f"⏱️ Last auto-refresh: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`")
 
-# Also show a manual "Refresh Now" button
-if st.button("Refresh Now"):
-    st.rerun()
+st.markdown("---")
 
 # -------------------------------
-# 2. Load Data from Google Sheets Using st.secrets
+# 🔗 Load Google Sheet Data
 # -------------------------------
-@st.cache_data(ttl=60, show_spinner=False)  # Cache expires every 60 seconds
+@st.cache_data(ttl=60, show_spinner=False)
 def load_google_sheet_data():
     SCOPES = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -49,7 +51,7 @@ def load_google_sheet_data():
 df_raw = load_google_sheet_data()
 
 # -------------------------------
-# 3. Data Preparation & Cleaning
+# 📅 Data Preparation
 # -------------------------------
 try:
     df_raw["DATETIME"] = pd.to_datetime(
@@ -62,23 +64,24 @@ except Exception as e:
 
 df_raw.sort_values("DATETIME", inplace=True)
 
-# Debugging aid to check data freshness
-st.write("🔁 Last data timestamp:", df_raw["DATETIME"].max())
+st.markdown("### 📋 Latest Data Snapshot")
+st.dataframe(df_raw.tail(), use_container_width=True)
+st.success(f"✅ Latest data timestamp: `{df_raw['DATETIME'].max()}`")
 
-st.subheader("Latest Data Snapshot")
-st.write(df_raw.tail())
+st.markdown("---")
 
 # -------------------------------
-# 4. Real-time Graphs: Voltage, Current, and Energy
+# 📊 Real-time Sensor Graphs
 # -------------------------------
-st.subheader("Real-time Sensor Readings")
+st.markdown("## 📈 Real-time Sensor Readings")
 
 fig_voltage = px.line(
     df_raw,
     x="DATETIME",
     y="VOLTAGE",
-    title="Voltage Over Time",
-    labels={"VOLTAGE": "Voltage (V)"}
+    title="🔌 Voltage Over Time",
+    labels={"VOLTAGE": "Voltage (V)"},
+    template="plotly_white"
 )
 st.plotly_chart(fig_voltage, use_container_width=True)
 
@@ -86,8 +89,9 @@ fig_current = px.line(
     df_raw,
     x="DATETIME",
     y="CURRENT",
-    title="Current Over Time",
-    labels={"CURRENT": "Current (A)"}
+    title="🔋 Current Over Time",
+    labels={"CURRENT": "Current (A)"},
+    template="plotly_white"
 )
 st.plotly_chart(fig_current, use_container_width=True)
 
@@ -95,26 +99,24 @@ fig_energy = px.bar(
     df_raw,
     x="DATETIME",
     y="ENERGY (kWh)",
-    title="Energy Consumption Over Time (Column Chart)",
+    title="⚙️ Energy Consumption Over Time",
     labels={"ENERGY (kWh)": "Energy (kWh)"},
-    color_discrete_sequence=["#00CC96"]
-)
-fig_energy.update_layout(
-    bargap=0.2,
-    xaxis_title="Time",
-    yaxis_title="Energy (kWh)",
+    color_discrete_sequence=["#00CC96"],
     template="plotly_white"
 )
+fig_energy.update_layout(bargap=0.2)
 st.plotly_chart(fig_energy, use_container_width=True)
 
+st.markdown("---")
+
 # -------------------------------
-# 5. Time Series Forecasting for Next 10 Minutes using Pre-trained LSTM Model
+# 🔮 Forecasting with LSTM
 # -------------------------------
-st.subheader("Energy Consumption 10-Min Forecast with Confidence Spread")
+st.markdown("## 🔮 10-Minute Energy Forecast")
+st.caption("Using LSTM model with confidence spread ±5%")
 
 df_raw["ENERGY (kWh)"] = pd.to_numeric(df_raw["ENERGY (kWh)"], errors="coerce")
 df_energy = df_raw.dropna(subset=["ENERGY (kWh)"]).copy()
-
 TIME_STEPS = 10
 
 if len(df_energy) < TIME_STEPS:
@@ -123,14 +125,11 @@ else:
     scaler = MinMaxScaler()
     energy_values = df_energy[["ENERGY (kWh)"]].values
     energy_scaled = scaler.fit_transform(energy_values)
-
-    last_sequence = energy_scaled[-TIME_STEPS:]
-    last_sequence = last_sequence.reshape((1, TIME_STEPS, 1))
+    last_sequence = energy_scaled[-TIME_STEPS:].reshape((1, TIME_STEPS, 1))
 
     from tensorflow.keras.layers import LSTM as OriginalLSTM
     def LSTM_wrapper(*args, **kwargs):
-        if "time_major" in kwargs:
-            kwargs.pop("time_major")
+        kwargs.pop("time_major", None)
         return OriginalLSTM(*args, **kwargs)
 
     @tf.keras.utils.register_keras_serializable()
@@ -138,19 +137,17 @@ else:
         return tf.reduce_mean(tf.square(y_pred - y_true))
 
     try:
-        custom_objects = {
+        model = load_model("lstm_energy_forecast_model.h5", custom_objects={
             "LSTM": LSTM_wrapper,
             "mse": mse
-        }
-        model = load_model("lstm_energy_forecast_model.h5", custom_objects=custom_objects)
+        })
     except Exception as e:
         st.error(f"Error loading the LSTM model: {e}")
         st.stop()
 
-    num_steps = 10
     predictions_scaled = []
     current_seq = last_sequence.copy()
-    for i in range(num_steps):
+    for _ in range(10):
         next_pred = model.predict(current_seq, verbose=0)
         predictions_scaled.append(next_pred[0, 0])
         current_seq = np.append(current_seq[:, 1:, :], [[[next_pred[0, 0]]]], axis=1)
@@ -159,50 +156,42 @@ else:
     predictions_inv = scaler.inverse_transform(predictions_scaled).flatten()
     conf_spread = predictions_inv * 0.05
 
-    if len(df_energy) >= 2:
-        last_timestamp = df_energy["DATETIME"].iloc[-1]
-        prev_timestamp = df_energy["DATETIME"].iloc[-2]
-        interval = last_timestamp - prev_timestamp
-    else:
-        interval = timedelta(minutes=1)
+    last_timestamp = df_energy["DATETIME"].iloc[-1]
+    prev_timestamp = df_energy["DATETIME"].iloc[-2] if len(df_energy) >= 2 else timedelta(minutes=1)
+    interval = last_timestamp - prev_timestamp
+    forecast_times = [last_timestamp + interval * (i + 1) for i in range(10)]
 
-    forecast_times = [last_timestamp + interval * (i + 1) for i in range(num_steps)]
-
-    recent_history = df_energy.tail(50)
+    # Forecast Plot
     fig_forecast = go.Figure()
     fig_forecast.add_trace(go.Scatter(
-        x=recent_history["DATETIME"],
-        y=recent_history["ENERGY (kWh)"],
+        x=df_energy.tail(50)["DATETIME"],
+        y=df_energy.tail(50)["ENERGY (kWh)"],
         mode="lines",
-        name="Historical Energy"
+        name="Historical"
     ))
     fig_forecast.add_trace(go.Scatter(
         x=forecast_times,
         y=predictions_inv,
         mode="lines+markers",
-        name="10-Min Forecast",
-        error_y=dict(
-            type="data",
-            array=conf_spread,
-            visible=True
-        )
+        name="Forecast",
+        error_y=dict(type="data", array=conf_spread, visible=True)
     ))
     fig_forecast.update_layout(
-        title="10-Minute Energy Forecast with Confidence Spread",
+        title="📉 10-Minute Forecast with ±5% Confidence",
         xaxis_title="Time",
         yaxis_title="Energy (kWh)",
         template="plotly_white"
     )
     st.plotly_chart(fig_forecast, use_container_width=True)
 
+    st.markdown("### 🧾 Forecast Table")
     forecast_df = pd.DataFrame({
         "Forecast Time": forecast_times,
         "Predicted Energy (kWh)": predictions_inv,
         "Confidence Spread (± kWh)": conf_spread
     })
-    st.write("### Forecast Data", forecast_df)
+    st.dataframe(forecast_df, use_container_width=True)
 
-# -------------------------------
-# 6. End of App
-# -------------------------------
-st.info("This dashboard auto-refreshes every 1 minute and allows manual refresh. It displays real-time sensor readings and a 10-minute forecast with confidence spread.")
+st.markdown("---")
+st.info("📡 This dashboard auto-refreshes every 1 minute and allows manual refresh.\n\n📈 Displays real-time sensor readings and a 10-minute forecast powered by LSTM model.")
+

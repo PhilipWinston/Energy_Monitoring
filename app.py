@@ -4,7 +4,6 @@ import numpy as np
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
-import pytz
 import plotly.express as px
 import plotly.graph_objs as go
 from sklearn.preprocessing import MinMaxScaler
@@ -18,14 +17,12 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="⚡ Realtime Energy Monitoring", layout="wide")
 st.title("⚡ Realtime Energy Monitoring Dashboard")
 
-# Auto-refresh every 1 minute (60000 ms)
+st.markdown("#### 📊 Live Sensor Data and Forecasting with Cost Estimation")
+
+# Auto-refresh every 1 minute
 st_autorefresh(interval=60000, limit=None, key="1min_refresh")
 
-# Display IST time
-ist_now = datetime.utcnow() + timedelta(hours=5, minutes=30)
-st.markdown(f"🕒 **Last Refreshed:** `{ist_now.strftime('%Y-%m-%d %H:%M:%S')} IST`")
-
-# Manual refresh
+# Manual Refresh Button
 if st.button("🔄 Refresh Now"):
     st.rerun()
 
@@ -51,69 +48,63 @@ def load_google_sheet_data():
 df_raw = load_google_sheet_data()
 
 # -------------------------------
-# 3. Data Preparation
+# 3. Data Preparation & Cleaning
 # -------------------------------
 try:
-    df_raw["DATETIME"] = pd.to_datetime(df_raw["DATE"] + " " + df_raw["TIME"], format="%Y-%m-%d %H:%M:%S")
+    df_raw["DATETIME"] = pd.to_datetime(
+        df_raw["DATE"] + " " + df_raw["TIME"],
+        format="%Y-%m-%d %H:%M:%S"
+    )
 except Exception as e:
-    st.error(f"❌ Error parsing datetime: {e}")
+    st.error(f"❌ Error creating datetime column: {e}")
     st.stop()
 
 df_raw.sort_values("DATETIME", inplace=True)
 
-# -------------------------------
-# 4. Display Latest Snapshot
-# -------------------------------
-st.subheader("📈 Latest Data Snapshot")
-st.dataframe(df_raw.tail(), use_container_width=True)
+st.subheader("🕒 Latest Data Snapshot")
+st.write(df_raw.tail())
 
 # -------------------------------
-# 5. Real-time Graphs
+# 4. Real-time Graphs
 # -------------------------------
-st.subheader("📊 Real-time Sensor Readings")
+st.subheader("📉 Real-time Sensor Readings")
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    fig_voltage = px.line(df_raw, x="DATETIME", y="VOLTAGE", title="🔌 Voltage Over Time", labels={"VOLTAGE": "Voltage (V)"})
-    st.plotly_chart(fig_voltage, use_container_width=True)
-with col2:
-    fig_current = px.line(df_raw, x="DATETIME", y="CURRENT", title="🔋 Current Over Time", labels={"CURRENT": "Current (A)"})
-    st.plotly_chart(fig_current, use_container_width=True)
-with col3:
-    fig_energy = px.bar(df_raw, x="DATETIME", y="ENERGY (kWh)", title="⚡ Energy Consumption Over Time", labels={"ENERGY (kWh)": "Energy (kWh)"}, color_discrete_sequence=["#00CC96"])
-    fig_energy.update_layout(bargap=0.2)
-    st.plotly_chart(fig_energy, use_container_width=True)
+fig_voltage = px.line(
+    df_raw,
+    x="DATETIME",
+    y="VOLTAGE",
+    title="⚡ Voltage Over Time",
+    labels={"VOLTAGE": "Voltage (V)"},
+    template="plotly_white"
+)
+st.plotly_chart(fig_voltage, use_container_width=True)
 
-# -------------------------------
-# 6. Meters (Gauges)
-# -------------------------------
-st.subheader("🧭 Live Meters (Gauges)")
-latest = df_raw.iloc[-1]
+fig_current = px.line(
+    df_raw,
+    x="DATETIME",
+    y="CURRENT",
+    title="💡 Current Over Time",
+    labels={"CURRENT": "Current (A)"},
+    template="plotly_white"
+)
+st.plotly_chart(fig_current, use_container_width=True)
 
-gauge_col1, gauge_col2, gauge_col3 = st.columns(3)
-with gauge_col1:
-    fig_v = go.Figure(go.Indicator(mode="gauge+number", value=latest["VOLTAGE"], title={"text": "Voltage (V)"}, gauge={"axis": {"range": [0, 300]}}))
-    st.plotly_chart(fig_v, use_container_width=True)
-with gauge_col2:
-    fig_c = go.Figure(go.Indicator(mode="gauge+number", value=latest["CURRENT"], title={"text": "Current (A)"}, gauge={"axis": {"range": [0, 50]}}))
-    st.plotly_chart(fig_c, use_container_width=True)
-with gauge_col3:
-    fig_e = go.Figure(go.Indicator(mode="gauge+number", value=latest["ENERGY (kWh)"], title={"text": "Energy (kWh)"}, gauge={"axis": {"range": [0, 10]}}))
-    st.plotly_chart(fig_e, use_container_width=True)
-
-# -------------------------------
-# 7. Energy Cost Calculation
-# -------------------------------
-st.subheader("💸 Cost Estimation (in INR)")
-cost_per_kwh = 7  # ₹7 per unit
-total_energy = df_raw["ENERGY (kWh)"].sum()
-total_cost = total_energy * cost_per_kwh
-st.metric(label="Estimated Total Cost", value=f"₹ {total_cost:.2f}")
+fig_energy = px.bar(
+    df_raw,
+    x="DATETIME",
+    y="ENERGY (kWh)",
+    title="🔋 Energy Consumption Over Time",
+    labels={"ENERGY (kWh)": "Energy (kWh)"},
+    color_discrete_sequence=["#1f77b4"],
+    template="plotly_white"
+)
+fig_energy.update_layout(bargap=0.2)
+st.plotly_chart(fig_energy, use_container_width=True)
 
 # -------------------------------
-# 8. LSTM Forecast
+# 5. Time Series Forecasting (LSTM)
 # -------------------------------
-st.subheader("🔮 Energy Consumption 10-Min Forecast")
+st.subheader("🔮 10-Minute Energy Forecast with Confidence")
 
 df_raw["ENERGY (kWh)"] = pd.to_numeric(df_raw["ENERGY (kWh)"], errors="coerce")
 df_energy = df_raw.dropna(subset=["ENERGY (kWh)"]).copy()
@@ -125,11 +116,14 @@ else:
     scaler = MinMaxScaler()
     energy_values = df_energy[["ENERGY (kWh)"]].values
     energy_scaled = scaler.fit_transform(energy_values)
-    last_sequence = energy_scaled[-TIME_STEPS:].reshape((1, TIME_STEPS, 1))
+
+    last_sequence = energy_scaled[-TIME_STEPS:]
+    last_sequence = last_sequence.reshape((1, TIME_STEPS, 1))
 
     from tensorflow.keras.layers import LSTM as OriginalLSTM
     def LSTM_wrapper(*args, **kwargs):
-        kwargs.pop("time_major", None)
+        if "time_major" in kwargs:
+            kwargs.pop("time_major")
         return OriginalLSTM(*args, **kwargs)
 
     @tf.keras.utils.register_keras_serializable()
@@ -137,42 +131,85 @@ else:
         return tf.reduce_mean(tf.square(y_pred - y_true))
 
     try:
-        model = load_model("lstm_energy_forecast_model.h5", custom_objects={"LSTM": LSTM_wrapper, "mse": mse})
+        custom_objects = {
+            "LSTM": LSTM_wrapper,
+            "mse": mse
+        }
+        model = load_model("lstm_energy_forecast_model.h5", custom_objects=custom_objects)
     except Exception as e:
-        st.error(f"❌ Error loading model: {e}")
+        st.error(f"❌ Error loading the LSTM model: {e}")
         st.stop()
 
     num_steps = 10
     predictions_scaled = []
     current_seq = last_sequence.copy()
-    for i in range(num_steps):
-        next_pred = model.predict(current_seq, verbose=0)
+    for _ in range(num_steps):
+        next_pred = model.predict(current_seq)
         predictions_scaled.append(next_pred[0, 0])
         current_seq = np.append(current_seq[:, 1:, :], [[[next_pred[0, 0]]]], axis=1)
 
-    predictions_inv = scaler.inverse_transform(np.array(predictions_scaled).reshape(-1, 1)).flatten()
+    predictions_scaled = np.array(predictions_scaled).reshape(-1, 1)
+    predictions_inv = scaler.inverse_transform(predictions_scaled).flatten()
     conf_spread = predictions_inv * 0.05
 
-    last_timestamp = df_energy["DATETIME"].iloc[-1]
-    prev_timestamp = df_energy["DATETIME"].iloc[-2]
-    interval = last_timestamp - prev_timestamp
-    forecast_times = [last_timestamp + interval * (i + 1) for i in range(num_steps)]
+    if len(df_energy) >= 2:
+        last_timestamp = df_energy["DATETIME"].iloc[-1]
+        prev_timestamp = df_energy["DATETIME"].iloc[-2]
+        interval = last_timestamp - prev_timestamp
+    else:
+        interval = timedelta(minutes=1)
 
-    recent_history = df_energy.tail(50)
-    fig_forecast = go.Figure()
-    fig_forecast.add_trace(go.Scatter(x=recent_history["DATETIME"], y=recent_history["ENERGY (kWh)"], mode="lines", name="History"))
-    fig_forecast.add_trace(go.Scatter(x=forecast_times, y=predictions_inv, mode="lines+markers", name="Forecast", error_y=dict(type="data", array=conf_spread, visible=True)))
-    fig_forecast.update_layout(title="⚡ 10-Minute Energy Forecast with Confidence Spread", xaxis_title="Time", yaxis_title="Energy (kWh)", template="plotly_white")
-    st.plotly_chart(fig_forecast, use_container_width=True)
+    forecast_times = [last_timestamp + interval * (i+1) for i in range(num_steps)]
+
+    # -------------------------------
+    # 💰 Energy Cost Calculation
+    # -------------------------------
+    RATE_PER_KWH = 7.11
+    forecast_costs = predictions_inv * RATE_PER_KWH
+    total_forecast_cost = np.sum(forecast_costs)
 
     forecast_df = pd.DataFrame({
-        "Forecast Time": forecast_times,
-        "Predicted Energy (kWh)": predictions_inv,
-        "Confidence Spread (± kWh)": conf_spread
+        "📅 Forecast Time (IST)": [t + timedelta(hours=5, minutes=30) for t in forecast_times],
+        "🔮 Predicted Energy (kWh)": predictions_inv,
+        "± Confidence (kWh)": conf_spread,
+        "💸 Estimated Cost (₹)": forecast_costs
     })
+
+    # -------------------------------
+    # Plot Forecast Graph
+    # -------------------------------
+    recent_history = df_energy.tail(50)
+    fig_forecast = go.Figure()
+    fig_forecast.add_trace(go.Scatter(
+        x=recent_history["DATETIME"],
+        y=recent_history["ENERGY (kWh)"],
+        mode="lines",
+        name="Historical Energy"
+    ))
+    fig_forecast.add_trace(go.Scatter(
+        x=[t + timedelta(hours=5, minutes=30) for t in forecast_times],
+        y=predictions_inv,
+        mode="lines+markers",
+        name="10-Min Forecast",
+        error_y=dict(type="data", array=conf_spread, visible=True)
+    ))
+    fig_forecast.update_layout(
+        title="🔮 Energy Forecast (Next 10 Minutes)",
+        xaxis_title="Time (IST)",
+        yaxis_title="Energy (kWh)",
+        template="plotly_white"
+    )
+    st.plotly_chart(fig_forecast, use_container_width=True)
+
+    st.markdown("### 📋 Forecast Table")
     st.dataframe(forecast_df, use_container_width=True)
 
+    st.success(f"💰 Total Forecasted Cost (Next 10 min): ₹{total_forecast_cost:.2f}")
+
 # -------------------------------
-# 9. End of App
+# 6. Show Last Refreshed Time in IST
 # -------------------------------
-st.info("⏱️ This dashboard auto-refreshes every 1 minute. All readings are live and predictive models use LSTM with confidence spreads.")
+current_utc = datetime.utcnow()
+ist_now = current_utc + timedelta(hours=5, minutes=30)
+formatted_time = ist_now.strftime("%Y-%m-%d %H:%M:%S")
+st.info(f"🕒 Auto Refreshed at (IST): {formatted_time}")

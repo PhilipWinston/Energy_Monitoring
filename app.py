@@ -23,14 +23,14 @@ st.title("Realtime Monitoring")
 # Auto-refresh every 1 minute (60000 ms)
 st_autorefresh(interval=60000, limit=None, key="1min_refresh")
 
-# Also show a manual "Refresh Now" button.
+# Also show a manual "Refresh Now" button
 if st.button("Refresh Now"):
     st.rerun()
 
 # -------------------------------
 # 2. Load Data from Google Sheets Using st.secrets
 # -------------------------------
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)  # Cache expires every 60 seconds
 def load_google_sheet_data():
     SCOPES = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -61,6 +61,9 @@ except Exception as e:
     st.stop()
 
 df_raw.sort_values("DATETIME", inplace=True)
+
+# Debugging aid to check data freshness
+st.write("🔁 Last data timestamp:", df_raw["DATETIME"].max())
 
 st.subheader("Latest Data Snapshot")
 st.write(df_raw.tail())
@@ -148,9 +151,9 @@ else:
     predictions_scaled = []
     current_seq = last_sequence.copy()
     for i in range(num_steps):
-        next_pred = model.predict(current_seq)
+        next_pred = model.predict(current_seq, verbose=0)
         predictions_scaled.append(next_pred[0, 0])
-        current_seq = np.append(current_seq[:, 1:, :], [[[next_pred[0,0]]]], axis=1)
+        current_seq = np.append(current_seq[:, 1:, :], [[[next_pred[0, 0]]]], axis=1)
 
     predictions_scaled = np.array(predictions_scaled).reshape(-1, 1)
     predictions_inv = scaler.inverse_transform(predictions_scaled).flatten()
@@ -163,7 +166,7 @@ else:
     else:
         interval = timedelta(minutes=1)
 
-    forecast_times = [last_timestamp + interval * (i+1) for i in range(num_steps)]
+    forecast_times = [last_timestamp + interval * (i + 1) for i in range(num_steps)]
 
     recent_history = df_energy.tail(50)
     fig_forecast = go.Figure()

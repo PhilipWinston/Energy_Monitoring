@@ -22,7 +22,7 @@ st.set_page_config(
 )
 
 # -------------------------------
-# 2. Load Trained Prophet Model
+# 2. Load Trained Prophet Modelv
 # -------------------------------
 @st.cache_resource
 def load_trained_model():

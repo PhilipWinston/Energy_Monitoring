@@ -9,12 +9,11 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import holidays
 from prophet import Prophet
-import pickle
 import warnings
 warnings.filterwarnings('ignore')
 
 # -------------------------------
-# 1. Streamlit Configuration & Auto-refresh
+# Streamlit Configuration
 # -------------------------------
 st.set_page_config(
     page_title="⚡ Smart Energy Management System", 
@@ -22,14 +21,40 @@ st.set_page_config(
     page_icon="⚡"
 )
 
-# Auto-refresh setup (uncomment when streamlit_autorefresh is available)
-# from streamlit_autorefresh import st_autorefresh
-# st_autorefresh(interval=60000, limit=None, key="1min_refresh")
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .main > div {
+        padding-top: 2rem;
+    }
+    .stMetric > div > div > div > div {
+        font-size: 1.2rem;
+    }
+    .metric-container {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1rem;
+        border-radius: 10px;
+        color: white;
+        margin: 0.5rem 0;
+    }
+    .status-good { color: #28a745; }
+    .status-warning { color: #ffc107; }
+    .status-danger { color: #dc3545; }
+    .energy-card {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        color: white;
+        text-align: center;
+        margin: 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # -------------------------------
-# 2. Data Loading Functions
+# Data Loading Functions
 # -------------------------------
-@st.cache_data(ttl=60)  # Cache for 1 minute
+@st.cache_data(ttl=60)
 def load_google_sheet_data():
     """Load real-time data from Google Sheets"""
     try:
@@ -47,403 +72,411 @@ def load_google_sheet_data():
         df = pd.DataFrame(data)
         return df
     except Exception as e:
-        st.error(f"Error loading data: {e}")
-        # Return sample data for demo purposes
-        return generate_sample_data()
+        st.error(f"⚠️ Error loading data: {e}")
+        return None
 
-def generate_sample_data():
-    """Generate sample data for demo purposes"""
-    dates = pd.date_range(start=datetime.now() - timedelta(hours=24), 
-                         end=datetime.now(), freq='10min')
-    np.random.seed(42)
-    
-    data = []
-    for date in dates:
-        voltage = 220 + np.random.normal(0, 5)
-        current = 2 + np.random.normal(0, 0.5) if np.random.random() > 0.3 else 0
-        power = voltage * current / 1000  # kW
-        energy = power * (10/60)  # kWh for 10 minutes
-        
-        data.append({
-            'DATE': date.strftime('%Y-%m-%d'),
-            'TIME': date.strftime('%H:%M:%S'),
-            'VOLTAGE': max(0, voltage),
-            'CURRENT': max(0, current),
-            'POWER': max(0, power),
-            'ENERGY (kWh)': max(0, energy)
-        })
-    
-    return pd.DataFrame(data)
-
-def prepare_prophet_data(df):
-    """Prepare data for Prophet model"""
-    prophet_df = pd.DataFrame({
-        'ds': df['DATETIME'],
-        'y': df['ENERGY (kWh)']
-    })
-    
-    # Add regressors
-    prophet_df['is_working_hour'] = ((df['DATETIME'].dt.hour >= 8) & 
-                                   (df['DATETIME'].dt.hour < 20)).astype(int)
-    prophet_df['is_holiday'] = df['DATETIME'].dt.date.apply(
-        lambda x: x in holidays.country_holidays("IN", years=[2024, 2025]).keys()
-    ).astype(int)
-    prophet_df['is_sunday'] = (df['DATETIME'].dt.dayofweek == 6).astype(int)
-    prophet_df['is_weekend'] = ((df['DATETIME'].dt.dayofweek == 5) | 
-                               (df['DATETIME'].dt.dayofweek == 6)).astype(int)
-    prophet_df['is_peak_hour'] = ((df['DATETIME'].dt.hour >= 9) & 
-                                 (df['DATETIME'].dt.hour <= 18)).astype(int)
-    prophet_df['power'] = df['POWER'].fillna(0)
-    
-    return prophet_df
+def get_voltage_status(voltage):
+    """Get voltage status with Indian standards (220-240V normal)"""
+    if 220 <= voltage <= 240:
+        return "🟢 Normal", "status-good"
+    elif 200 <= voltage < 220 or 240 < voltage <= 250:
+        return "🟡 Warning", "status-warning"
+    else:
+        return "🔴 Critical", "status-danger"
 
 # -------------------------------
-# 3. Load and Prepare Data
+# Load and Prepare Data
 # -------------------------------
 df_raw = load_google_sheet_data()
 
-# Data preparation
-try:
-    df_raw["DATETIME"] = pd.to_datetime(
-        df_raw["DATE"] + " " + df_raw["TIME"],
-        format="%Y-%m-%d %H:%M:%S"
-    )
-except Exception as e:
-    st.error(f"Error creating datetime column: {e}")
+if df_raw is not None:
+    try:
+        df_raw["DATETIME"] = pd.to_datetime(
+            df_raw["DATE"] + " " + df_raw["TIME"],
+            format="%Y-%m-%d %H:%M:%S"
+        )
+        df_raw = df_raw.sort_values("DATETIME")
+        df_raw['ENERGY (kWh)'] = pd.to_numeric(df_raw['ENERGY (kWh)'], errors='coerce')
+        df_raw = df_raw.dropna()
+    except Exception as e:
+        st.error(f"❌ Error processing data: {e}")
+        st.stop()
+else:
+    st.error("❌ Unable to load data. Please check your connection.")
     st.stop()
 
-df_raw = df_raw.sort_values("DATETIME")
-df_raw['ENERGY (kWh)'] = pd.to_numeric(df_raw['ENERGY (kWh)'], errors='coerce')
-df_raw = df_raw.dropna()
-
 # -------------------------------
-# 4. Header and Navigation
+# Header Section
 # -------------------------------
-st.title("⚡ Smart Energy Management System")
-st.markdown("### Real-time Monitoring & Predictive Analytics")
+st.markdown("""
+<div style='text-align: center; padding: 2rem 0;'>
+    <h1 style='color: #2E86AB; font-size: 3rem; margin-bottom: 0;'>⚡ Smart Energy Management System</h1>
+    <p style='color: #6C757D; font-size: 1.2rem; margin-top: 0.5rem;'>Real-time Monitoring & Predictive Analytics for India</p>
+</div>
+""", unsafe_allow_html=True)
 
-# Manual refresh button
-col1, col2, col3 = st.columns([1, 1, 4])
+# Control Panel
+col1, col2, col3, col4 = st.columns([2, 2, 2, 4])
 with col1:
-    if st.button("🔄 Refresh Data"):
+    if st.button("🔄 Refresh Data", type="primary"):
         st.cache_data.clear()
         st.rerun()
 
 with col2:
-    st.metric("Status", "🟢 Live", help="System is actively monitoring")
+    st.markdown("**Status:** 🟢 Live")
 
-# Create tabs
+with col3:
+    if len(df_raw) > 0:
+        data_age = (datetime.now() - df_raw['DATETIME'].max()).total_seconds() / 60
+        st.markdown(f"**Freshness:** {data_age:.1f}min")
+
+# Create tabs with custom styling
 tab1, tab2 = st.tabs(["📊 Live Monitoring", "🔮 Energy Prediction"])
 
 # -------------------------------
 # TAB 1: LIVE MONITORING
 # -------------------------------
 with tab1:
-    st.header("📊 Real-time Energy Monitoring")
-    
-    # Current metrics row
     if len(df_raw) > 0:
         latest = df_raw.iloc[-1]
+        
+        # Current Status Dashboard
+        st.markdown("### 📊 Current System Status")
+        
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric(
-                "⚡ Current Voltage", 
-                f"{latest['VOLTAGE']:.1f} V",
-                delta=f"{latest['VOLTAGE'] - 220:.1f}" if len(df_raw) > 1 else None
-            )
+            voltage_status, voltage_class = get_voltage_status(latest['VOLTAGE'])
+            st.markdown(f"""
+            <div class="energy-card">
+                <h3>⚡ Voltage</h3>
+                <h2>{latest['VOLTAGE']:.1f} V</h2>
+                <p class="{voltage_class}">{voltage_status}</p>
+            </div>
+            """, unsafe_allow_html=True)
         
         with col2:
-            st.metric(
-                "🔋 Current Draw", 
-                f"{latest['CURRENT']:.2f} A",
-                delta=f"{latest['CURRENT'] - df_raw.iloc[-2]['CURRENT']:.2f}" if len(df_raw) > 1 else None
-            )
+            st.markdown(f"""
+            <div class="energy-card">
+                <h3>🔋 Current</h3>
+                <h2>{latest['CURRENT']:.2f} A</h2>
+                <p>Load Active</p>
+            </div>
+            """, unsafe_allow_html=True)
         
         with col3:
-            st.metric(
-                "⚙️ Power", 
-                f"{latest['POWER']:.3f} kW",
-                delta=f"{latest['POWER'] - df_raw.iloc[-2]['POWER']:.3f}" if len(df_raw) > 1 else None
-            )
+            st.markdown(f"""
+            <div class="energy-card">
+                <h3>⚙️ Power</h3>
+                <h2>{latest['POWER']:.3f} kW</h2>
+                <p>Instantaneous</p>
+            </div>
+            """, unsafe_allow_html=True)
         
         with col4:
             total_energy = df_raw['ENERGY (kWh)'].sum()
             cost = total_energy * 7.11
-            st.metric(
-                "💰 Total Cost", 
-                f"₹{cost:.2f}",
-                delta=f"₹{latest['ENERGY (kWh)'] * 7.11:.2f}"
+            st.markdown(f"""
+            <div class="energy-card">
+                <h3>💰 Total Cost</h3>
+                <h2>₹{cost:.2f}</h2>
+                <p>{total_energy:.4f} kWh</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # Enhanced Visualization
+        st.markdown("### 📈 Real-time Analytics")
+        
+        viz_type = st.selectbox(
+            "Select Visualization:",
+            ["📊 Complete Dashboard", "⚡ Voltage Analysis", "🔋 Power Trends", "📉 Energy Pattern"],
+            key="viz_selector"
+        )
+        
+        if viz_type == "📊 Complete Dashboard":
+            # Multi-metric dashboard
+            fig = make_subplots(
+                rows=2, cols=2,
+                subplot_titles=('⚡ Voltage Monitoring', '🔋 Current Flow', 
+                              '⚙️ Power Consumption', '📊 Energy Usage'),
+                specs=[[{"secondary_y": False}, {"secondary_y": False}],
+                       [{"secondary_y": False}, {"secondary_y": False}]],
+                vertical_spacing=0.08
             )
-    
-    # Visualization options
-    st.subheader("📈 Live Data Visualization")
-    
-    viz_option = st.selectbox(
-        "Choose visualization type:",
-        ["Combined View", "Individual Metrics", "Power Analysis", "24-Hour Overview"]
-    )
-    
-    if viz_option == "Combined View":
-        # Create subplot with secondary y-axis
-        fig = make_subplots(
-            rows=2, cols=2,
-            subplot_titles=('Voltage Over Time', 'Current Over Time', 
-                          'Power Consumption', 'Energy Consumption'),
-            specs=[[{"secondary_y": False}, {"secondary_y": False}],
-                   [{"secondary_y": False}, {"secondary_y": False}]]
-        )
-        
-        # Voltage
-        fig.add_trace(
-            go.Scatter(x=df_raw['DATETIME'], y=df_raw['VOLTAGE'], 
-                      name='Voltage', line=dict(color='#FF6B6B', width=2)),
-            row=1, col=1
-        )
-        
-        # Current
-        fig.add_trace(
-            go.Scatter(x=df_raw['DATETIME'], y=df_raw['CURRENT'], 
-                      name='Current', line=dict(color='#4ECDC4', width=2)),
-            row=1, col=2
-        )
-        
-        # Power
-        fig.add_trace(
-            go.Scatter(x=df_raw['DATETIME'], y=df_raw['POWER'], 
-                      name='Power', line=dict(color='#45B7D1', width=2)),
-            row=2, col=1
-        )
-        
-        # Energy
-        fig.add_trace(
-            go.Bar(x=df_raw['DATETIME'], y=df_raw['ENERGY (kWh)'], 
-                   name='Energy', marker_color='#96CEB4'),
-            row=2, col=2
-        )
-        
-        fig.update_layout(
-            height=600, 
-            showlegend=False,
-            title_text="Real-time Energy Monitoring Dashboard",
-            title_x=0.5
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    elif viz_option == "Individual Metrics":
-        # Individual metric charts
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig_v = px.line(df_raw, x='DATETIME', y='VOLTAGE', 
-                           title='🔌 Voltage Monitoring',
-                           color_discrete_sequence=['#FF6B6B'])
-            fig_v.add_hline(y=220, line_dash="dash", line_color="green", 
-                           annotation_text="Nominal Voltage")
-            fig_v.add_hline(y=200, line_dash="dash", line_color="orange", 
-                           annotation_text="Low Voltage Warning")
-            st.plotly_chart(fig_v, use_container_width=True)
             
-            fig_c = px.line(df_raw, x='DATETIME', y='CURRENT', 
-                           title='🔋 Current Monitoring',
-                           color_discrete_sequence=['#4ECDC4'])
-            st.plotly_chart(fig_c, use_container_width=True)
-        
-        with col2:
-            fig_p = px.area(df_raw, x='DATETIME', y='POWER', 
-                           title='⚙️ Power Consumption',
-                           color_discrete_sequence=['#45B7D1'])
-            st.plotly_chart(fig_p, use_container_width=True)
+            # Voltage with reference lines
+            fig.add_trace(
+                go.Scatter(x=df_raw['DATETIME'], y=df_raw['VOLTAGE'], 
+                          name='Voltage', line=dict(color='#FF6B35', width=3)),
+                row=1, col=1
+            )
+            fig.add_hline(y=230, line_dash="dash", line_color="green", row=1, col=1)
+            fig.add_hline(y=220, line_dash="dot", line_color="orange", row=1, col=1)
+            fig.add_hline(y=240, line_dash="dot", line_color="orange", row=1, col=1)
             
-            fig_e = px.bar(df_raw, x='DATETIME', y='ENERGY (kWh)', 
-                          title='📊 Energy Usage',
-                          color_discrete_sequence=['#96CEB4'])
-            st.plotly_chart(fig_e, use_container_width=True)
-    
-    elif viz_option == "Power Analysis":
-        # Power analysis with statistics
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            fig_power = go.Figure()
-            fig_power.add_trace(go.Scatter(
-                x=df_raw['DATETIME'], 
-                y=df_raw['POWER'],
-                mode='lines+markers',
-                name='Power Consumption',
-                line=dict(color='#FF6B6B', width=2),
-                marker=dict(size=4)
-            ))
+            # Current
+            fig.add_trace(
+                go.Scatter(x=df_raw['DATETIME'], y=df_raw['CURRENT'], 
+                          name='Current', line=dict(color='#4ECDC4', width=3),
+                          fill='tonexty' if len(df_raw) > 1 else None),
+                row=1, col=2
+            )
             
-            # Add power zones
+            # Power
+            fig.add_trace(
+                go.Scatter(x=df_raw['DATETIME'], y=df_raw['POWER'], 
+                          name='Power', line=dict(color='#45B7D1', width=3),
+                          mode='lines+markers', marker=dict(size=4)),
+                row=2, col=1
+            )
+            
+            # Energy bars
+            fig.add_trace(
+                go.Bar(x=df_raw['DATETIME'], y=df_raw['ENERGY (kWh)'], 
+                       name='Energy', marker_color='#96CEB4', opacity=0.7),
+                row=2, col=2
+            )
+            
+            fig.update_layout(
+                height=700, 
+                showlegend=False,
+                title_text="🏠 Smart Energy Monitoring Dashboard",
+                title_x=0.5,
+                title_font_size=20
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        
+        elif viz_type == "⚡ Voltage Analysis":
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                fig_voltage = go.Figure()
+                fig_voltage.add_trace(go.Scatter(
+                    x=df_raw['DATETIME'], 
+                    y=df_raw['VOLTAGE'],
+                    mode='lines+markers',
+                    name='Voltage',
+                    line=dict(color='#FF6B35', width=3),
+                    marker=dict(size=5)
+                ))
+                
+                # Indian voltage standards
+                fig_voltage.add_hline(y=230, line_dash="solid", line_color="green", 
+                                     annotation_text="Ideal (230V)", annotation_position="top right")
+                fig_voltage.add_hline(y=220, line_dash="dash", line_color="orange", 
+                                     annotation_text="Min Normal (220V)")
+                fig_voltage.add_hline(y=240, line_dash="dash", line_color="orange", 
+                                     annotation_text="Max Normal (240V)")
+                fig_voltage.add_hline(y=200, line_dash="dot", line_color="red", 
+                                     annotation_text="Critical Low (200V)")
+                
+                fig_voltage.update_layout(
+                    title="⚡ Voltage Quality Analysis (Indian Standards)",
+                    xaxis_title="Time",
+                    yaxis_title="Voltage (V)",
+                    height=500
+                )
+                st.plotly_chart(fig_voltage, use_container_width=True)
+            
+            with col2:
+                st.markdown("### 📊 Voltage Stats")
+                voltage_stats = df_raw['VOLTAGE'].describe()
+                
+                for stat, value in [("Current", latest['VOLTAGE']), 
+                                   ("Average", voltage_stats['mean']),
+                                   ("Maximum", voltage_stats['max']),
+                                   ("Minimum", voltage_stats['min'])]:
+                    status_class = get_voltage_status(value)[1]
+                    st.markdown(f"""
+                    <div style='padding: 0.5rem; margin: 0.25rem 0; border-left: 4px solid #FF6B35;'>
+                        <strong>{stat}:</strong> <span class='{status_class}'>{value:.1f}V</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        elif viz_type == "🔋 Power Trends":
+            # Power analysis with advanced metrics
+            fig_power = make_subplots(
+                rows=2, cols=1,
+                subplot_titles=('🔋 Power Consumption Over Time', '📊 Power Distribution'),
+                specs=[[{"secondary_y": False}], [{"secondary_y": False}]],
+                vertical_spacing=0.1
+            )
+            
+            # Power trend
+            fig_power.add_trace(
+                go.Scatter(x=df_raw['DATETIME'], y=df_raw['POWER'],
+                          mode='lines+markers', name='Power',
+                          line=dict(color='#45B7D1', width=3),
+                          fill='tonexty'),
+                row=1, col=1
+            )
+            
             avg_power = df_raw['POWER'].mean()
-            fig_power.add_hline(y=avg_power, line_dash="dash", line_color="blue", 
-                               annotation_text=f"Average: {avg_power:.3f} kW")
-            fig_power.add_hline(y=avg_power * 1.5, line_dash="dash", line_color="orange", 
-                               annotation_text="High Usage Zone")
+            fig_power.add_hline(y=avg_power, line_dash="dash", line_color="blue",
+                               annotation_text=f"Avg: {avg_power:.3f}kW", row=1, col=1)
             
-            fig_power.update_layout(title='🔍 Detailed Power Analysis')
+            # Power histogram
+            fig_power.add_trace(
+                go.Histogram(x=df_raw['POWER'], nbinsx=20, name='Distribution',
+                            marker_color='#96CEB4', opacity=0.7),
+                row=2, col=1
+            )
+            
+            fig_power.update_layout(height=600, showlegend=False)
             st.plotly_chart(fig_power, use_container_width=True)
         
-        with col2:
-            st.subheader("📊 Power Statistics")
-            power_stats = df_raw['POWER'].describe()
-            for stat, value in power_stats.items():
-                st.metric(stat.title(), f"{value:.4f} kW")
-    
-    elif viz_option == "24-Hour Overview":
-        # 24-hour energy pattern
-        df_raw['Hour'] = df_raw['DATETIME'].dt.hour
-        hourly_energy = df_raw.groupby('Hour')['ENERGY (kWh)'].sum().reset_index()
+        elif viz_type == "📉 Energy Pattern":
+            # Energy consumption patterns
+            df_raw['Hour'] = df_raw['DATETIME'].dt.hour
+            hourly_energy = df_raw.groupby('Hour')['ENERGY (kWh)'].sum().reset_index()
+            
+            fig_pattern = px.bar(
+                hourly_energy, x='Hour', y='ENERGY (kWh)',
+                title='🕐 24-Hour Energy Consumption Pattern',
+                color='ENERGY (kWh)',
+                color_continuous_scale='plasma',
+                labels={'Hour': 'Hour of Day', 'ENERGY (kWh)': 'Energy Consumed (kWh)'}
+            )
+            
+            fig_pattern.update_layout(height=500)
+            st.plotly_chart(fig_pattern, use_container_width=True)
         
-        fig_hourly = px.bar(
-            hourly_energy, x='Hour', y='ENERGY (kWh)',
-            title='24-Hour Energy Consumption Pattern',
-            color='ENERGY (kWh)',
-            color_continuous_scale='viridis'
+        # Recent data with better formatting
+        st.markdown("### 📋 Recent Activity Log")
+        display_count = st.slider("Records to display:", 5, 25, 10, key="data_display")
+        
+        recent_data = df_raw.tail(display_count).copy()
+        recent_data['Status'] = recent_data['VOLTAGE'].apply(lambda x: get_voltage_status(x)[0])
+        recent_data = recent_data[['DATETIME', 'VOLTAGE', 'CURRENT', 'POWER', 'ENERGY (kWh)', 'Status']]
+        
+        st.dataframe(
+            recent_data,
+            use_container_width=True,
+            column_config={
+                "DATETIME": st.column_config.DatetimeColumn("Time", format="DD/MM/YY HH:mm:ss"),
+                "VOLTAGE": st.column_config.NumberColumn("Voltage (V)", format="%.1f"),
+                "CURRENT": st.column_config.NumberColumn("Current (A)", format="%.2f"),
+                "POWER": st.column_config.NumberColumn("Power (kW)", format="%.3f"),
+                "ENERGY (kWh)": st.column_config.NumberColumn("Energy (kWh)", format="%.6f"),
+            }
         )
-        fig_hourly.update_layout(xaxis_title="Hour of Day", yaxis_title="Energy (kWh)")
-        st.plotly_chart(fig_hourly, use_container_width=True)
-    
-    # Data table
-    st.subheader("📋 Recent Data Log")
-    display_count = st.slider("Number of recent records to display:", 5, 50, 10)
-    st.dataframe(df_raw.tail(display_count), use_container_width=True)
 
 # -------------------------------
 # TAB 2: ENERGY PREDICTION
 # -------------------------------
 with tab2:
-    st.header("🔮 Energy Prediction & Analytics")
+    st.markdown("### 🔮 AI-Powered Energy Forecasting")
     
     # Prediction controls
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        prediction_horizon = st.selectbox(
-            "Prediction Horizon:",
-            ["Next Hour", "Next 4 Hours", "Next 12 Hours", "Next 24 Hours"]
+        horizon = st.selectbox(
+            "🕐 Forecast Period:",
+            ["Next 2 Hours", "Next 6 Hours", "Next 12 Hours", "Next 24 Hours"],
+            key="forecast_horizon"
         )
     
     with col2:
-        prediction_interval = st.selectbox(
-            "Prediction Interval:",
-            ["10 minutes", "30 minutes", "1 hour"]
+        interval = st.selectbox(
+            "📊 Data Interval:",
+            ["15 minutes", "30 minutes", "1 hour"],
+            key="forecast_interval"
         )
     
     with col3:
-        confidence_level = st.slider("Confidence Level:", 80, 99, 95)
+        confidence = st.slider("🎯 Confidence Level:", 85, 99, 95, key="confidence")
     
-    # Create and train Prophet model (simplified for demo)
+    # Prophet model setup
     @st.cache_resource
-    def create_prophet_model(df):
-        """Create and train Prophet model"""
+    def create_forecast_model(df):
+        """Create Prophet forecasting model"""
         try:
-            prophet_df = prepare_prophet_data(df)
+            # Prepare data
+            prophet_df = pd.DataFrame({
+                'ds': df['DATETIME'],
+                'y': df['ENERGY (kWh)']
+            })
             
+            # Add features
+            prophet_df['is_working_hour'] = ((df['DATETIME'].dt.hour >= 8) & 
+                                           (df['DATETIME'].dt.hour <= 20)).astype(int)
+            prophet_df['is_weekend'] = (df['DATETIME'].dt.dayofweek >= 5).astype(int)
+            
+            # Create model
             model = Prophet(
                 changepoint_prior_scale=0.05,
                 seasonality_prior_scale=0.1,
-                holidays_prior_scale=0.1,
                 daily_seasonality=True,
                 weekly_seasonality=True,
                 yearly_seasonality=False,
-                interval_width=confidence_level/100
+                interval_width=confidence/100
             )
             
-            # Add regressors
-            model.add_regressor('is_working_hour', prior_scale=0.5)
-            model.add_regressor('is_holiday', prior_scale=0.3)
-            model.add_regressor('is_weekend', prior_scale=0.3)
-            model.add_regressor('is_peak_hour', prior_scale=0.4)
-            model.add_regressor('power', prior_scale=0.8)
-            
-            # Add holidays
-            india_holidays = holidays.country_holidays("IN", years=[2024, 2025])
-            holiday_df = pd.DataFrame([
-                {'holiday': 'holiday', 'ds': pd.to_datetime(date), 
-                 'lower_window': 0, 'upper_window': 0}
-                for date in india_holidays.keys()
-            ])
-            model.holidays = holiday_df
+            model.add_regressor('is_working_hour')
+            model.add_regressor('is_weekend')
             
             model.fit(prophet_df)
             return model, prophet_df
         except Exception as e:
-            st.error(f"Error creating model: {e}")
-            return None, None
+            return None, str(e)
     
-    # Train model
-    with st.spinner("🤖 Training prediction model..."):
-        model, prophet_df = create_prophet_model(df_raw)
+    # Generate forecast
+    with st.spinner("🤖 Training AI model and generating predictions..."):
+        model, error = create_forecast_model(df_raw)
     
     if model is not None:
-        # Generate predictions
-        horizon_hours = {"Next Hour": 1, "Next 4 Hours": 4, 
-                        "Next 12 Hours": 12, "Next 24 Hours": 24}[prediction_horizon]
-        
-        interval_minutes = {"10 minutes": 10, "30 minutes": 30, "1 hour": 60}[prediction_interval]
-        
         # Create future dataframe
-        last_time = df_raw['DATETIME'].max()
-        future_periods = int((horizon_hours * 60) / interval_minutes)
+        horizon_map = {"Next 2 Hours": 2, "Next 6 Hours": 6, "Next 12 Hours": 12, "Next 24 Hours": 24}
+        interval_map = {"15 minutes": 15, "30 minutes": 30, "1 hour": 60}
         
+        hours = horizon_map[horizon]
+        minutes = interval_map[interval]
+        periods = int((hours * 60) / minutes)
+        
+        last_time = df_raw['DATETIME'].max()
         future_dates = pd.date_range(
-            start=last_time + timedelta(minutes=interval_minutes),
-            periods=future_periods,
-            freq=f'{interval_minutes}min'
+            start=last_time + timedelta(minutes=minutes),
+            periods=periods,
+            freq=f'{minutes}min'
         )
         
         future_df = pd.DataFrame({'ds': future_dates})
-        
-        # Add regressors for future predictions
         future_df['is_working_hour'] = ((future_df['ds'].dt.hour >= 8) & 
-                                       (future_df['ds'].dt.hour < 20)).astype(int)
-        future_df['is_holiday'] = future_df['ds'].dt.date.apply(
-            lambda x: x in holidays.country_holidays("IN", years=[2024, 2025]).keys()
-        ).astype(int)
-        future_df['is_weekend'] = ((future_df['ds'].dt.dayofweek == 5) | 
-                                  (future_df['ds'].dt.dayofweek == 6)).astype(int)
-        future_df['is_peak_hour'] = ((future_df['ds'].dt.hour >= 9) & 
-                                    (future_df['ds'].dt.hour <= 18)).astype(int)
-        
-        # Estimate future power based on patterns
-        avg_working_power = df_raw[df_raw['DATETIME'].dt.hour.between(8, 20)]['POWER'].mean()
-        avg_non_working_power = df_raw[~df_raw['DATETIME'].dt.hour.between(8, 20)]['POWER'].mean()
-        
-        future_df['power'] = np.where(
-            future_df['is_working_hour'], 
-            avg_working_power, 
-            avg_non_working_power
-        )
+                                       (future_df['ds'].dt.hour <= 20)).astype(int)
+        future_df['is_weekend'] = (future_df['ds'].dt.dayofweek >= 5).astype(int)
         
         # Make predictions
         forecast = model.predict(future_df)
         
         # Visualization
-        st.subheader("📊 Energy Consumption Forecast")
+        st.markdown("### 📈 Energy Consumption Forecast")
         
-        # Combine historical and forecast data
+        # Enhanced forecast plot
         fig_forecast = go.Figure()
         
-        # Historical data
-        recent_data = df_raw.tail(50)  # Show last 50 points
+        # Historical data (last 50 points)
+        recent = df_raw.tail(50)
         fig_forecast.add_trace(go.Scatter(
-            x=recent_data['DATETIME'],
-            y=recent_data['ENERGY (kWh)'],
+            x=recent['DATETIME'],
+            y=recent['ENERGY (kWh)'],
             mode='lines+markers',
-            name='Historical Data',
-            line=dict(color='#1f77b4', width=2)
+            name='📊 Historical Data',
+            line=dict(color='#1f77b4', width=3),
+            marker=dict(size=6)
         ))
         
-        # Forecast data
+        # Forecast
         fig_forecast.add_trace(go.Scatter(
             x=forecast['ds'],
             y=forecast['yhat'],
             mode='lines+markers',
-            name='Forecast',
-            line=dict(color='#ff7f0e', width=2, dash='dash')
+            name='🔮 AI Forecast',
+            line=dict(color='#ff7f0e', width=3, dash='dash'),
+            marker=dict(size=6, symbol='diamond')
         ))
         
         # Confidence interval
@@ -453,100 +486,105 @@ with tab2:
             fill='toself',
             fillcolor='rgba(255,127,14,0.2)',
             line=dict(color='rgba(255,255,255,0)'),
-            name=f'{confidence_level}% Confidence Interval'
+            name=f'🎯 {confidence}% Confidence Band'
         ))
         
         fig_forecast.update_layout(
-            title=f'Energy Consumption Forecast - {prediction_horizon}',
+            title=f'🔮 Energy Forecast - {horizon}',
             xaxis_title='Time',
-            yaxis_title='Energy (kWh)',
+            yaxis_title='Energy Consumption (kWh)',
+            height=500,
             hovermode='x unified'
         )
         
         st.plotly_chart(fig_forecast, use_container_width=True)
         
-        # Prediction summary
+        # Forecast insights
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("📋 Forecast Summary")
+            st.markdown("### 📊 Forecast Summary")
+            
             total_predicted = forecast['yhat'].sum()
-            max_predicted = forecast['yhat'].max()
-            avg_predicted = forecast['yhat'].mean()
-            
-            st.metric("Total Predicted Energy", f"{total_predicted:.4f} kWh")
-            st.metric("Peak Predicted Energy", f"{max_predicted:.4f} kWh")
-            st.metric("Average Predicted Energy", f"{avg_predicted:.4f} kWh")
-            
-            # Cost estimation
+            peak_consumption = forecast['yhat'].max()
+            avg_consumption = forecast['yhat'].mean()
             predicted_cost = total_predicted * 7.11
-            st.metric("Estimated Cost", f"₹{predicted_cost:.2f}")
+            
+            metrics_data = [
+                ("🔋 Total Energy", f"{total_predicted:.4f} kWh"),
+                ("⚡ Peak Usage", f"{peak_consumption:.4f} kWh"),
+                ("📊 Average", f"{avg_consumption:.4f} kWh"),
+                ("💰 Estimated Cost", f"₹{predicted_cost:.2f}")
+            ]
+            
+            for label, value in metrics_data:
+                st.markdown(f"""
+                <div style='background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); 
+                           padding: 1rem; margin: 0.5rem 0; border-radius: 10px; color: white;'>
+                    <strong>{label}:</strong> {value}
+                </div>
+                """, unsafe_allow_html=True)
         
         with col2:
-            st.subheader("💡 Smart Recommendations")
+            st.markdown("### 💡 Smart Insights")
             
-            # Generate recommendations based on predictions
             peak_hour = forecast.loc[forecast['yhat'].idxmax(), 'ds'].hour
-            low_hour = forecast.loc[forecast['yhat'].idxmin(), 'ds'].hour
+            min_hour = forecast.loc[forecast['yhat'].idxmin(), 'ds'].hour
             
-            recommendations = []
+            insights = []
             
-            if max_predicted > avg_predicted * 1.5:
-                recommendations.append(f"⚠️ High energy usage predicted at {peak_hour}:00. Consider load balancing.")
+            if peak_consumption > avg_consumption * 1.8:
+                insights.append(f"⚠️ Peak usage at {peak_hour}:00 - Consider load shifting")
             
-            if any(forecast['yhat'] < 0.001):
-                recommendations.append("💡 Low usage periods detected. Good for maintenance scheduling.")
-            
-            weekend_forecast = forecast[forecast['ds'].dt.weekday >= 5]
-            if len(weekend_forecast) > 0 and weekend_forecast['yhat'].mean() > avg_predicted:
-                recommendations.append("📅 Higher weekend usage predicted. Check for unnecessary equipment.")
-            
-            if predicted_cost > 50:  # Arbitrary threshold
-                recommendations.append(f"💰 High cost predicted (₹{predicted_cost:.2f}). Consider energy optimization.")
+            if predicted_cost > 100:
+                insights.append(f"💸 High cost alert: ₹{predicted_cost:.2f} - Optimize usage")
             else:
-                recommendations.append("✅ Energy usage within optimal range.")
+                insights.append("✅ Cost within reasonable range")
             
-            for i, rec in enumerate(recommendations, 1):
-                st.write(f"{i}. {rec}")
+            weekend_periods = forecast[forecast['ds'].dt.weekday >= 5]
+            if len(weekend_periods) > 0 and weekend_periods['yhat'].mean() > avg_consumption * 1.2:
+                insights.append("📅 High weekend usage predicted")
+            
+            insights.append(f"🌙 Lowest usage at {min_hour}:00 - Best for maintenance")
+            insights.append(f"📈 Confidence level: {confidence}% - High reliability")
+            
+            for insight in insights:
+                st.info(insight)
         
-        # Detailed forecast table
-        st.subheader("📊 Detailed Forecast Data")
-        forecast_display = pd.DataFrame({
-            'Time': forecast['ds'],
-            'Predicted Energy (kWh)': forecast['yhat'].round(6),
-            'Lower Bound': forecast['yhat_lower'].round(6),
-            'Upper Bound': forecast['yhat_upper'].round(6),
-            'Confidence': f"{confidence_level}%"
+        # Download forecast
+        forecast_export = pd.DataFrame({
+            'DateTime': forecast['ds'],
+            'Predicted_Energy_kWh': forecast['yhat'].round(6),
+            'Lower_Bound': forecast['yhat_lower'].round(6),
+            'Upper_Bound': forecast['yhat_upper'].round(6)
         })
         
-        st.dataframe(forecast_display, use_container_width=True)
-        
-        # Download predictions
-        csv_data = forecast_display.to_csv(index=False)
+        csv_data = forecast_export.to_csv(index=False)
         st.download_button(
-            label="📥 Download Predictions",
+            label="📥 Download Forecast Data",
             data=csv_data,
-            file_name=f"energy_predictions_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv"
+            file_name=f"energy_forecast_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv",
+            type="primary"
         )
     
     else:
-        st.error("Unable to create prediction model. Please check your data.")
+        st.error(f"❌ Unable to create forecast model: {error}")
 
 # -------------------------------
-# 5. Footer with System Info
+# Footer
 # -------------------------------
 st.markdown("---")
 col1, col2, col3 = st.columns(3)
 
 with col1:
     ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
-    st.caption(f"⏱ Last updated: {ist_time.strftime('%Y-%m-%d %H:%M:%S')} IST")
+    st.caption(f"🕐 Last updated: {ist_time.strftime('%d/%m/%Y %H:%M:%S')} IST")
 
 with col2:
-    st.caption(f"📊 Data points: {len(df_raw)}")
+    st.caption(f"📊 Total records: {len(df_raw):,}")
 
 with col3:
     if len(df_raw) > 0:
-        data_freshness = (datetime.now() - df_raw['DATETIME'].max()).total_seconds() / 60
-        st.caption(f"🔄 Data freshness: {data_freshness:.1f} min ago")
+        uptime = (df_raw['DATETIME'].max() - df_raw['DATETIME'].min()).total_seconds() / 3600
+        st.caption(f"⏱ Monitoring duration: {uptime:.1f} hours")

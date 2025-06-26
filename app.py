@@ -21,32 +21,186 @@ st.set_page_config(
     page_icon="⚡"
 )
 
-# Custom CSS for better styling
+# Dark theme CSS styling
 st.markdown("""
 <style>
+    /* Main app styling */
+    .stApp {
+        background-color: #0e1117;
+        color: #fafafa;
+    }
+    
     .main > div {
         padding-top: 2rem;
+        background-color: #0e1117;
     }
+    
+    /* Sidebar styling */
+    .css-1d391kg {
+        background-color: #1e2130;
+    }
+    
+    /* Metric styling */
     .stMetric > div > div > div > div {
         font-size: 1.2rem;
+        color: #fafafa;
     }
-    .metric-container {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    
+    .stMetric > div > div > div > div[data-testid="metric-container"] {
+        background-color: #1e2130;
+        border: 1px solid #262730;
         padding: 1rem;
         border-radius: 10px;
-        color: white;
-        margin: 0.5rem 0;
     }
-    .status-good { color: #28a745; }
-    .status-warning { color: #ffc107; }
-    .status-danger { color: #dc3545; }
+    
+    /* Status colors for dark theme */
+    .status-good { color: #00ff88; font-weight: bold; }
+    .status-warning { color: #ffaa00; font-weight: bold; }
+    .status-danger { color: #ff4444; font-weight: bold; }
+    
+    /* Energy cards with dark theme gradients */
     .energy-card {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        border: 1px solid #2d3748;
         padding: 1.5rem;
         border-radius: 15px;
-        color: white;
+        color: #ffffff;
         text-align: center;
         margin: 1rem 0;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+    
+    .energy-card h2 {
+        color: #64ffda;
+        margin: 0.5rem 0;
+        font-weight: 700;
+    }
+    
+    .energy-card h3 {
+        color: #90cdf4;
+        margin: 0;
+        font-size: 1rem;
+    }
+    
+    .energy-card p {
+        color: #a0aec0;
+        margin: 0.5rem 0 0 0;
+        font-size: 0.9rem;
+    }
+    
+    /* Button styling */
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+    }
+    
+    .stButton > button:hover {
+        background: linear-gradient(135deg, #5a67d8 0%, #667eea 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    
+    /* Tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: #1e2130;
+        border-radius: 10px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background-color: transparent;
+        color: #a0aec0;
+        border-radius: 8px;
+        margin: 0 4px;
+    }
+    
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #2d3748;
+        color: #ffffff;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white !important;
+    }
+    
+    /* Select box styling */
+    .stSelectbox > div > div {
+        background-color: #1e2130;
+        border: 1px solid #2d3748;
+        color: #ffffff;
+    }
+    
+    /* Dataframe styling */
+    .stDataFrame {
+        background-color: #1e2130;
+    }
+    
+    /* Info/warning boxes */
+    .stAlert {
+        background-color: #1a202c;
+        border: 1px solid #2d3748;
+        color: #ffffff;
+    }
+    
+    /* Slider styling */
+    .stSlider > div > div > div {
+        background-color: #2d3748;
+    }
+    
+    /* Plotly chart background */
+    .js-plotly-plot {
+        background-color: transparent !important;
+    }
+    
+    /* Header styling */
+    .main-header {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        padding: 2rem;
+        border-radius: 15px;
+        margin-bottom: 2rem;
+        border: 1px solid #2d3748;
+        text-align: center;
+    }
+    
+    .main-title {
+        color: #64ffda;
+        font-size: 3rem;
+        margin-bottom: 0.5rem;
+        font-weight: 700;
+        text-shadow: 0 0 20px rgba(100, 255, 218, 0.3);
+    }
+    
+    .main-subtitle {
+        color: #90cdf4;
+        font-size: 1.2rem;
+        margin-top: 0;
+    }
+    
+    /* Metric summary cards */
+    .metric-summary {
+        background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
+        padding: 1rem;
+        margin: 0.5rem 0;
+        border-radius: 10px;
+        border-left: 4px solid #64ffda;
+        color: #ffffff;
+    }
+    
+    /* Download button */
+    .stDownloadButton > button {
+        background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+        color: #1a1a2e;
+        border: none;
+        font-weight: 600;
+    }
+    
+    .stDownloadButton > button:hover {
+        background: linear-gradient(135deg, #00cc6a 0%, #00aa55 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 255, 136, 0.3);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -109,9 +263,9 @@ else:
 # Header Section
 # -------------------------------
 st.markdown("""
-<div style='text-align: center; padding: 2rem 0;'>
-    <h1 style='color: #2E86AB; font-size: 3rem; margin-bottom: 0;'>⚡ Smart Energy Management System</h1>
-    <p style='color: #6C757D; font-size: 1.2rem; margin-top: 0.5rem;'>Real-time Monitoring & Predictive Analytics for India</p>
+<div class='main-header'>
+    <h1 class='main-title'>⚡ Smart Energy Management System</h1>
+    <p class='main-subtitle'>Real-time Monitoring & Predictive Analytics for India</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -206,20 +360,20 @@ with tab1:
                 vertical_spacing=0.08
             )
             
-            # Voltage with reference lines
+            # Voltage with reference lines (dark theme colors)
             fig.add_trace(
                 go.Scatter(x=df_raw['DATETIME'], y=df_raw['VOLTAGE'], 
-                          name='Voltage', line=dict(color='#FF6B35', width=3)),
+                          name='Voltage', line=dict(color='#64ffda', width=3)),
                 row=1, col=1
             )
-            fig.add_hline(y=230, line_dash="dash", line_color="green", row=1, col=1)
-            fig.add_hline(y=220, line_dash="dot", line_color="orange", row=1, col=1)
-            fig.add_hline(y=240, line_dash="dot", line_color="orange", row=1, col=1)
+            fig.add_hline(y=230, line_dash="dash", line_color="#00ff88", row=1, col=1)
+            fig.add_hline(y=220, line_dash="dot", line_color="#ffaa00", row=1, col=1)
+            fig.add_hline(y=240, line_dash="dot", line_color="#ffaa00", row=1, col=1)
             
             # Current
             fig.add_trace(
                 go.Scatter(x=df_raw['DATETIME'], y=df_raw['CURRENT'], 
-                          name='Current', line=dict(color='#4ECDC4', width=3),
+                          name='Current', line=dict(color='#90cdf4', width=3),
                           fill='tonexty' if len(df_raw) > 1 else None),
                 row=1, col=2
             )
@@ -227,7 +381,7 @@ with tab1:
             # Power
             fig.add_trace(
                 go.Scatter(x=df_raw['DATETIME'], y=df_raw['POWER'], 
-                          name='Power', line=dict(color='#45B7D1', width=3),
+                          name='Power', line=dict(color='#fbb6ce', width=3),
                           mode='lines+markers', marker=dict(size=4)),
                 row=2, col=1
             )
@@ -235,7 +389,7 @@ with tab1:
             # Energy bars
             fig.add_trace(
                 go.Bar(x=df_raw['DATETIME'], y=df_raw['ENERGY (kWh)'], 
-                       name='Energy', marker_color='#96CEB4', opacity=0.7),
+                       name='Energy', marker_color='#68d391', opacity=0.8),
                 row=2, col=2
             )
             
@@ -244,7 +398,10 @@ with tab1:
                 showlegend=False,
                 title_text="🏠 Smart Energy Monitoring Dashboard",
                 title_x=0.5,
-                title_font_size=20
+                title_font_size=20,
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font_color='#ffffff'
             )
             
             st.plotly_chart(fig, use_container_width=True)
@@ -259,25 +416,28 @@ with tab1:
                     y=df_raw['VOLTAGE'],
                     mode='lines+markers',
                     name='Voltage',
-                    line=dict(color='#FF6B35', width=3),
-                    marker=dict(size=5)
+                    line=dict(color='#64ffda', width=3),
+                    marker=dict(size=5, color='#64ffda')
                 ))
                 
-                # Indian voltage standards
-                fig_voltage.add_hline(y=230, line_dash="solid", line_color="green", 
+                # Indian voltage standards (dark theme colors)
+                fig_voltage.add_hline(y=230, line_dash="solid", line_color="#00ff88", 
                                      annotation_text="Ideal (230V)", annotation_position="top right")
-                fig_voltage.add_hline(y=220, line_dash="dash", line_color="orange", 
+                fig_voltage.add_hline(y=220, line_dash="dash", line_color="#ffaa00", 
                                      annotation_text="Min Normal (220V)")
-                fig_voltage.add_hline(y=240, line_dash="dash", line_color="orange", 
+                fig_voltage.add_hline(y=240, line_dash="dash", line_color="#ffaa00", 
                                      annotation_text="Max Normal (240V)")
-                fig_voltage.add_hline(y=200, line_dash="dot", line_color="red", 
+                fig_voltage.add_hline(y=200, line_dash="dot", line_color="#ff4444", 
                                      annotation_text="Critical Low (200V)")
                 
                 fig_voltage.update_layout(
                     title="⚡ Voltage Quality Analysis (Indian Standards)",
                     xaxis_title="Time",
                     yaxis_title="Voltage (V)",
-                    height=500
+                    height=500,
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font_color='#ffffff'
                 )
                 st.plotly_chart(fig_voltage, use_container_width=True)
             
@@ -291,7 +451,7 @@ with tab1:
                                    ("Minimum", voltage_stats['min'])]:
                     status_class = get_voltage_status(value)[1]
                     st.markdown(f"""
-                    <div style='padding: 0.5rem; margin: 0.25rem 0; border-left: 4px solid #FF6B35;'>
+                    <div class='metric-summary'>
                         <strong>{stat}:</strong> <span class='{status_class}'>{value:.1f}V</span>
                     </div>
                     """, unsafe_allow_html=True)
@@ -309,23 +469,29 @@ with tab1:
             fig_power.add_trace(
                 go.Scatter(x=df_raw['DATETIME'], y=df_raw['POWER'],
                           mode='lines+markers', name='Power',
-                          line=dict(color='#45B7D1', width=3),
+                          line=dict(color='#fbb6ce', width=3),
                           fill='tonexty'),
                 row=1, col=1
             )
             
             avg_power = df_raw['POWER'].mean()
-            fig_power.add_hline(y=avg_power, line_dash="dash", line_color="blue",
+            fig_power.add_hline(y=avg_power, line_dash="dash", line_color="#90cdf4",
                                annotation_text=f"Avg: {avg_power:.3f}kW", row=1, col=1)
             
             # Power histogram
             fig_power.add_trace(
                 go.Histogram(x=df_raw['POWER'], nbinsx=20, name='Distribution',
-                            marker_color='#96CEB4', opacity=0.7),
+                            marker_color='#68d391', opacity=0.8),
                 row=2, col=1
             )
             
-            fig_power.update_layout(height=600, showlegend=False)
+            fig_power.update_layout(
+                height=600, 
+                showlegend=False,
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font_color='#ffffff'
+            )
             st.plotly_chart(fig_power, use_container_width=True)
         
         elif viz_type == "📉 Energy Pattern":
@@ -337,11 +503,16 @@ with tab1:
                 hourly_energy, x='Hour', y='ENERGY (kWh)',
                 title='🕐 24-Hour Energy Consumption Pattern',
                 color='ENERGY (kWh)',
-                color_continuous_scale='plasma',
+                color_continuous_scale='viridis',
                 labels={'Hour': 'Hour of Day', 'ENERGY (kWh)': 'Energy Consumed (kWh)'}
             )
             
-            fig_pattern.update_layout(height=500)
+            fig_pattern.update_layout(
+                height=500,
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font_color='#ffffff'
+            )
             st.plotly_chart(fig_pattern, use_container_width=True)
         
         # Recent data with better formatting
@@ -465,8 +636,8 @@ with tab2:
             y=recent['ENERGY (kWh)'],
             mode='lines+markers',
             name='📊 Historical Data',
-            line=dict(color='#1f77b4', width=3),
-            marker=dict(size=6)
+            line=dict(color='#64ffda', width=3),
+            marker=dict(size=6, color='#64ffda')
         ))
         
         # Forecast
@@ -475,8 +646,8 @@ with tab2:
             y=forecast['yhat'],
             mode='lines+markers',
             name='🔮 AI Forecast',
-            line=dict(color='#ff7f0e', width=3, dash='dash'),
-            marker=dict(size=6, symbol='diamond')
+            line=dict(color='#fbb6ce', width=3, dash='dash'),
+            marker=dict(size=6, symbol='diamond', color='#fbb6ce')
         ))
         
         # Confidence interval
@@ -484,7 +655,7 @@ with tab2:
             x=forecast['ds'].tolist() + forecast['ds'].tolist()[::-1],
             y=forecast['yhat_upper'].tolist() + forecast['yhat_lower'].tolist()[::-1],
             fill='toself',
-            fillcolor='rgba(255,127,14,0.2)',
+            fillcolor='rgba(251,182,206,0.2)',
             line=dict(color='rgba(255,255,255,0)'),
             name=f'🎯 {confidence}% Confidence Band'
         ))
@@ -494,7 +665,10 @@ with tab2:
             xaxis_title='Time',
             yaxis_title='Energy Consumption (kWh)',
             height=500,
-            hovermode='x unified'
+            hovermode='x unified',
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font_color='#ffffff'
         )
         
         st.plotly_chart(fig_forecast, use_container_width=True)
@@ -519,8 +693,7 @@ with tab2:
             
             for label, value in metrics_data:
                 st.markdown(f"""
-                <div style='background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); 
-                           padding: 1rem; margin: 0.5rem 0; border-radius: 10px; color: white;'>
+                <div class='energy-card'>
                     <strong>{label}:</strong> {value}
                 </div>
                 """, unsafe_allow_html=True)

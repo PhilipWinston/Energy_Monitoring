@@ -9,6 +9,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import holidays
 from prophet import Prophet
+import pytz  # Added for IST time zone handling
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -21,7 +22,7 @@ st.set_page_config(
     page_icon="⚡"
 )
 
-# Dark theme CSS styling
+# Dark theme CSS styling (unchanged)
 st.markdown("""
 <style>
     /* Main app styling */
@@ -205,10 +206,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Define IST timezone
+IST = pytz.timezone('Asia/Kolkata')  # Added for IST consistency
+
 # -------------------------------
 # Data Loading Functions
 # -------------------------------
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)  # Reduced TTL for fresher data
 def load_google_sheet_data():
     """Load real-time data from Google Sheets"""
     try:
@@ -248,7 +252,7 @@ if df_raw is not None:
         df_raw["DATETIME"] = pd.to_datetime(
             df_raw["DATE"] + " " + df_raw["TIME"],
             format="%Y-%m-%d %H:%M:%S"
-        )
+        ).dt.tz_localize(IST)  # Localize to IST
         df_raw = df_raw.sort_values("DATETIME")
         df_raw['ENERGY (kWh)'] = pd.to_numeric(df_raw['ENERGY (kWh)'], errors='coerce')
         df_raw = df_raw.dropna()
@@ -281,7 +285,8 @@ with col2:
 
 with col3:
     if len(df_raw) > 0:
-        data_age = (datetime.now() - df_raw['DATETIME'].max()).total_seconds() / 60
+        current_time = datetime.now(IST)  # Use IST for current time
+        data_age = (current_time - df_raw['DATETIME'].max().astimezone(IST)).total_seconds() / 60
         st.markdown(f"**Freshness:** {data_age:.1f}min")
 
 # Create tabs with custom styling
@@ -612,7 +617,8 @@ with tab2:
         future_dates = pd.date_range(
             start=last_time + timedelta(minutes=minutes),
             periods=periods,
-            freq=f'{minutes}min'
+            freq=f'{minutes}min',
+            tz=IST  # Ensure future dates are in IST
         )
         
         future_df = pd.DataFrame({'ds': future_dates})
@@ -736,7 +742,7 @@ with tab2:
         st.download_button(
             label="📥 Download Forecast Data",
             data=csv_data,
-            file_name=f"energy_forecast_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            file_name=f"energy_forecast_{datetime.now(IST).strftime('%Y%m%d_%H%M')}.csv",  # Use IST for filename
             mime="text/csv",
             type="primary"
         )
@@ -751,7 +757,7 @@ st.markdown("---")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    ist_time = datetime.now(IST)  # Use IST for footer
     st.caption(f"🕐 Last updated: {ist_time.strftime('%d/%m/%Y %H:%M:%S')} IST")
 
 with col2:

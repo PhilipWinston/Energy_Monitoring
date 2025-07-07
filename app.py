@@ -9,7 +9,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import holidays
 from prophet import Prophet
-import pytz  # For IST time zone handling
+import pytz
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -22,7 +22,7 @@ st.set_page_config(
     page_icon="⚡"
 )
 
-# Dark theme CSS styling (unchanged)
+# Dark theme CSS styling (added status-not-live class)
 st.markdown("""
 <style>
     /* Main app styling */
@@ -58,6 +58,7 @@ st.markdown("""
     .status-good { color: #00ff88; font-weight: bold; }
     .status-warning { color: #ffaa00; font-weight: bold; }
     .status-danger { color: #ff4444; font-weight: bold; }
+    .status-not-live { color: #ffaa00; font-weight: bold; } /* Added for Not Live status */
     
     /* Energy cards with dark theme gradients */
     .energy-card {
@@ -252,7 +253,7 @@ if df_raw is not None:
         df_raw["DATETIME"] = pd.to_datetime(
             df_raw["DATE"] + " " + df_raw["TIME"],
             format="%Y-%m-%d %H:%M:%S"
-        ).dt.tz_localize(IST)  # Localize to IST for display
+        ).dt.tz_localize(IST)
         df_raw = df_raw.sort_values("DATETIME")
         df_raw['ENERGY (kWh)'] = pd.to_numeric(df_raw['ENERGY (kWh)'], errors='coerce')
         df_raw = df_raw.dropna()
@@ -281,12 +282,19 @@ with col1:
         st.rerun()
 
 with col2:
-    st.markdown("**Status:** 🟢 Live")
-
-with col3:
     if len(df_raw) > 0:
         current_time = datetime.now(IST)
         data_age = (current_time - df_raw['DATETIME'].max().astimezone(IST)).total_seconds() / 60
+        # Modified status logic based on freshness
+        if data_age <= 5:
+            st.markdown("**Status:** <span class='status-good'>🟢 Live</span>", unsafe_allow_html=True)
+        else:
+            st.markdown("**Status:** <span class='status-not-live'>🟡 Not Live</span>", unsafe_allow_html=True)
+    else:
+        st.markdown("**Status:** <span class='status-danger'>🔴 No Data</span>", unsafe_allow_html=True)
+
+with col3:
+    if len(df_raw) > 0:
         st.markdown(f"**Freshness:** {data_age:.1f}min")
 
 # Create tabs with custom styling
@@ -573,7 +581,7 @@ with tab2:
         try:
             # Prepare data, removing timezone for Prophet compatibility
             prophet_df = pd.DataFrame({
-                'ds': df['DATETIME'].dt.tz_localize(None),  # Remove timezone
+                'ds': df['DATETIME'].dt.tz_localize(None),
                 'y': df['ENERGY (kWh)']
             })
             
@@ -613,12 +621,12 @@ with tab2:
         minutes = interval_map[interval]
         periods = int((hours * 60) / minutes)
         
-        last_time = df_raw['DATETIME'].max().tz_localize(None)  # Remove timezone for Prophet
+        last_time = df_raw['DATETIME'].max().tz_localize(None)
         future_dates = pd.date_range(
             start=last_time + timedelta(minutes=minutes),
             periods=periods,
             freq=f'{minutes}min'
-        )  # No timezone for Prophet compatibility
+        )
         
         future_df = pd.DataFrame({'ds': future_dates})
         future_df['is_working_hour'] = ((future_df['ds'].dt.hour >= 8) & 
